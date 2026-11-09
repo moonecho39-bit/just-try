@@ -1,0 +1,11 @@
+# 统一换行符：仓库里一律 LF，避免 Windows 提交把整个文件的换行全改一遍
+* text=auto eol=lf
+
+# 二进制文件不要做换行转换
+*.png binary
+*.jpg binary
+*.pdf binary
+*.zip binary
+
+# GitHub Actions 工作流固定 LF（某些 runner 上的 shell 对 CRLF 敏感）
+.github/workflows/*.yml text eol=lf

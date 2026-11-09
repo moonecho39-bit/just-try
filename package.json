@@ -1,0 +1,44 @@
+{
+  "name": "obsidian-pdf-annotator",
+  "version": "0.4.0",
+  "description": "Obsidian PDF annotation plugin (Markdown backlink based)",
+  "author": "moonecho39-bit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonecho39-bit/just-try.git"
+  },
+  "homepage": "https://github.com/moonecho39-bit/just-try#readme",
+  "bugs": {
+    "url": "https://github.com/moonecho39-bit/just-try/issues"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "pdf",
+    "annotation",
+    "highlight",
+    "markdown",
+    "ai",
+    "ollama"
+  ],
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "npm run typecheck && node esbuild.config.mjs production",
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "pretest": "esbuild test/entry.ts --bundle --platform=node --format=cjs --outfile=test/_bundle.cjs --log-level=warning --external:obsidian --external:canvas",
+    "test": "node test/run.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.2",
+    "jsdom": "^24.0.0",
+    "obsidian": "^1.5.7",
+    "pdfjs-dist": "3.11.174",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  }
+}

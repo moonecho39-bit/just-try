@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>PDF Annotator — 绘制层视觉校验</title>
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      /* 复刻 Obsidian 的关键 CSS 变量，让插件样式在纯浏览器里也能正确取值 */
+      :root {
+        --background-primary: #ffffff;
+        --background-secondary: #f4f4f6;
+        --background-modifier-border: #e2e2e7;
+        --background-modifier-hover: #ededf1;
+        --text-normal: #22232a;
+        --text-muted: #6b6f7a;
+        --text-faint: #a2a6b0;
+        --text-error: #d93a4a;
+        --text-on-accent: #ffffff;
+        --interactive-accent: #7c5cff;
+        --interactive-accent-hover: #6b4bea;
+        --font-ui-small: 13px;
+        --font-ui-smaller: 11px;
+        --font-text: "Segoe UI", system-ui, sans-serif;
+      }
+
+      /* Obsidian 全局有 border-box，demo 也必须对齐，否则 268px 的盒子会被 padding/border 撑开 */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px 28px 60px;
+        background: #eceef2;
+        font-family: var(--font-text);
+        color: var(--text-normal);
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+
+      p.lead {
+        margin: 0 0 22px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      /* 覆盖 .pdf-annotator-view 的满屏约束，方便截图 */
+      .pdf-annotator-view {
+        height: auto;
+        overflow: visible;
+      }
+
+      .demo-pages {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        align-items: flex-start;
+      }
+
+      .demo-figure {
+        margin: 0;
+      }
+
+      .demo-figure figcaption {
+        margin-bottom: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .demo-overlays {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px dashed #c9ccd4;
+      }
+
+      .demo-label {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .demo-pair {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      /* 阶段三：回链页 + 面板并排 */
+      .demo-stage3 {
+        display: flex;
+        gap: 28px;
+        align-items: flex-start;
+        margin-top: 30px;
+        padding-top: 24px;
+        border-top: 1px dashed #c9ccd4;
+      }
+
+      .demo-panel-box {
+        width: 270px;
+        height: 420px;
+        display: flex;
+        overflow: hidden;
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 6px;
+        background: var(--background-primary);
+      }
+
+      /* 不改 flex：.pdfa-side 的固定宽度就是它在宿主里的真实表现 */
+      .demo-panel-box .pdfa-side {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      /* 阶段四 / 五：便签浮层 + AI 弹窗 */
+      .demo-stage4 {
+        display: flex;
+        gap: 28px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-top: 30px;
+        padding-top: 24px;
+        border-top: 1px dashed #c9ccd4;
+      }
+
+      /* 便签浮层本来挂在 body 上，demo 里挪进 figure 便于并排对照 */
+      .demo-stage4 .pdfa-note-editor {
+        position: static !important;
+        visibility: visible !important;
+      }
+
+      /* Obsidian 的 .modal 默认 fixed 居中，demo 里要参与普通流 */
+      .demo-stage4 .modal {
+        position: static !important;
+        transform: none !important;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+      }
+
+      .demo-chips {        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      /* demo 里不用 fixed，避免跑到视口角落 */
+      .demo-chips .pdfa-hint,
+      .demo-chips .pdfa-drag-chip {
+        position: static;
+        transform: none !important;
+      }
+    </style>
+  </head>
+  <body class="pdf-annotator-view">
+    <h1>绘制层与回链视觉校验</h1>
+    <p class="lead">
+      三页用同一批批注、同一 viewBox（600×800pt），只改容器尺寸 —— 位置必须等比一致，图钉必须保持同样的视觉大小。
+    </p>
+
+    <div id="pages" class="demo-pages"></div>
+
+    <div id="stage3" class="demo-stage3"></div>
+
+    <div id="stage4" class="demo-stage4"></div>
+
+    <div class="demo-overlays">
+      <div class="demo-pair">
+        <span class="demo-label">选区浮动工具栏</span>
+        <div class="pdfa-float-toolbar">
+          <button class="pdfa-ft-btn pdfa-ft-color" type="button">
+            <span class="pdfa-ft-dot" style="background: #ffe066"></span>
+            <span class="pdfa-ft-caret">▾</span>
+          </button>
+          <button class="pdfa-ft-btn" type="button">🖍</button>
+          <button class="pdfa-ft-btn" type="button">U</button>
+          <span class="pdfa-ft-sep"></span>
+          <button class="pdfa-ft-btn" type="button">▭</button>
+          <button class="pdfa-ft-btn" type="button">↗</button>
+          <button class="pdfa-ft-btn" type="button">📌</button>
+          <span class="pdfa-ft-sep"></span>
+          <button class="pdfa-ft-btn" type="button">✏️</button>
+          <button class="pdfa-ft-btn" type="button">🖌</button>
+        </div>
+      </div>
+
+      <div class="demo-pair">
+        <span class="demo-label">取色弹层（原生高亮组）</span>
+        <div class="pdfa-pop pdfa-color-pop">
+          <div class="pdfa-pop-head"><span class="pdfa-pop-title">取色 · 文本标记</span></div>
+          <div class="pdfa-color-tabs">
+            <button class="pdfa-color-tab" type="button">马卡龙</button>
+            <button class="pdfa-color-tab" type="button">莫兰迪</button>
+            <button class="pdfa-color-tab is-active" type="button">原生高亮</button>
+            <button class="pdfa-color-tab" type="button">自定义</button>
+          </div>
+          <div class="pdfa-swatches">
+            <button class="pdfa-swatch is-active" style="background:#FFE066" type="button"></button>
+            <button class="pdfa-swatch" style="background:#7BE38B" type="button"></button>
+            <button class="pdfa-swatch" style="background:#6FD3F2" type="button"></button>
+            <button class="pdfa-swatch" style="background:#FF9AC4" type="button"></button>
+            <button class="pdfa-swatch" style="background:#FFA94D" type="button"></button>
+            <button class="pdfa-swatch" style="background:#B197FC" type="button"></button>
+          </div>
+          <div class="pdfa-color-custom">
+            <label class="pdfa-color-custom-label">自定义</label>
+            <input class="pdfa-color-input" type="color" value="#ffe066" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 便签编辑器已升级为真实组件，见 #stage4，这里不再手写 mock -->
+      <div class="demo-pair demo-chips">
+        <span class="demo-label">回链悬停提示 / 拖拽幽灵块</span>
+        <div class="pdfa-hint">双击跳到 社会保险法评估.md · 第 42 行</div>
+        <div class="pdfa-drag-chip is-over-target">🔗 PDF 链接</div>
+      </div>
+    </div>
+
+    <script src="./demo.js"></script>
+  </body>
+</html>

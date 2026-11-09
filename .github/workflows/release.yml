@@ -1,0 +1,64 @@
+name: Release
+
+# 打 tag 即发布（例如 git tag 0.4.0 && git push origin 0.4.0）
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 类型检查 + 生产构建（esbuild 输出 main.js）
+      - name: Build
+        run: npm run build
+
+      # 冒烟测试：坐标 / 绘制 / 链接 / 文本索引 / AI 协议 / 便签格式 / 指针适配
+      - name: Test
+        run: npm test
+
+      # Obsidian 要求 release 里的 manifest.version 与 tag 完全一致，
+      # 不一致时社区市场会拒绝更新，所以在这一步硬性拦下。
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "tag=$TAG manifest=$VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::tag ($TAG) 与 manifest.json 的 version ($VERSION) 不一致"
+            exit 1
+          fi
+
+      # 社区插件只认这三个文件，必须作为**独立附件**上传，
+      # 不能打成 zip（BRAT 与官方市场都按文件名直接下载）。
+      - name: Collect release assets
+        run: |
+          mkdir -p dist
+          cp main.js manifest.json styles.css dist/
+          ls -la dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/main.js
+            dist/manifest.json
+            dist/styles.css
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,0 +1,24 @@
+# 依赖
+node_modules/
+
+# 构建产物（由 .github/workflows/release.yml 在打 tag 时构建并上传 Release，
+# 不把 1.6MB 的 bundle 塞进 git 历史）
+main.js
+main.js.map
+styles.css.map
+
+# 测试中间产物（esbuild 打包的测试入口）
+test/_bundle.cjs
+
+# Releases 打包目录（CI 里生成）
+dist/
+*.zip
+
+# demo 的构建与截图
+demo/demo.js
+demo/*.png
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.log
