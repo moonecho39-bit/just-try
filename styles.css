@@ -1448,3 +1448,48 @@ body.pdfa-linking-drag {
     stroke: none;
   }
 }
+
+/* ---------------------------------------------------------------- *
+ * 加载失败态
+ *
+ * 空白页对用户是最没信息量的反馈：分不清"文件还没写完""文件不是 PDF"
+ * 和"插件坏了"。这里把文件、大小、原始错误一起摊开，并给就地重试。
+ * ---------------------------------------------------------------- */
+.pdfa-error {
+  max-width: 640px;
+  margin: 12vh auto 0;
+  padding: 24px 28px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+}
+
+.pdfa-error h3 {
+  margin: 0 0 12px;
+  font-size: 1.15em;
+  color: var(--text-error);
+}
+
+.pdfa-error-hint {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.pdfa-error-detail {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  line-height: 1.7;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.pdfa-error-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}

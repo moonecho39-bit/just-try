@@ -640,8 +640,24 @@ export class PDFFileView extends ItemView {
     this.noteLocations.clear();
     this.notesHydrated = false;
 
-    const buffer = await this.app.vault.readBinary(file);
-    const numPages = await this.renderer.load(buffer);
+    /*
+     * ★ 加载必须整段兜住
+     *
+     * 这里的失败方式很讨厌：readBinary 可能拿到**还在写入**的文件（下载 / 复制中
+     * 即被双击打开），pdf.js 拿到残缺字节会直接抛 InvalidPDFException。
+     * 之前没有 try/catch，异常顺着 `void this.loadPdf()` 变成未处理的 Promise 拒绝，
+     * 界面只剩一片空白 + 页码 0/0 —— 用户完全不知道发生了什么，也分不清是文件坏了
+     * 还是插件没工作。所以任何失败都要落成一个**看得见、能重试**的错误态。
+     */
+    let numPages = 0;
+    try {
+      const buffer = await this.app.vault.readBinary(file);
+      numPages = await this.renderer.load(buffer);
+    } catch (err) {
+      if (gen !== this.generation) return;
+      this.showLoadError(file, err);
+      return;
+    }
     if (gen !== this.generation) return;
 
     await this.buildPlaceholders(numPages, gen);
@@ -661,6 +677,53 @@ export class PDFFileView extends ItemView {
       this.pendingTarget = null;
       void this.navigateTo(target);
     }
+  }
+
+  /**
+   * 加载失败时的可见错误态。
+   *
+   * 为什么不做成一句 Notice 了事：Notice 几秒就没了，用户回来只看到空白页，
+   * 于是无法区分"文件没写好"和"插件坏了"。这里把**文件、大小、原始错误**都摊在页面上，
+   * 并给一个就地重试的按钮 —— 大多数情况下"下载刚结束"点一下就好了。
+   */
+  private showLoadError(file: TFile, err: unknown): void {
+    const raw = err instanceof Error ? err.message : String(err);
+    const size = file.stat?.size ?? 0;
+    const sizeText =
+      size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.round(size / 1024)} KB`;
+
+    this.pagesEl.empty();
+    this.pages.clear();
+
+    const box = this.pagesEl.createDiv({ cls: "pdfa-error" });
+    box.createEl("h3", { text: "无法打开这个 PDF" });
+
+    // 按大小分开给建议：空/极小的文件几乎必然是"还没写完"，不是坏了
+    const hint =
+      size < 1024
+        ? "文件几乎是空的（字节数不到 1 KB）。如果是刚下载或刚复制进来的，等它真正写完再点「重试」。"
+        : "文件有内容，但解析失败：可能还没写完，也可能它不是真正的 PDF（例如把 .caj / .nh 改名成了 .pdf）。";
+    box.createEl("p", { cls: "pdfa-error-hint", text: hint });
+
+    const detail = box.createDiv({ cls: "pdfa-error-detail" });
+    detail.createDiv({ text: `文件：${file.path}` });
+    detail.createDiv({ text: `大小：${sizeText}` });
+    detail.createDiv({ text: `错误：${raw}` });
+
+    const actions = box.createDiv({ cls: "pdfa-error-actions" });
+    const retry = actions.createEl("button", { cls: "mod-cta", text: "重试" });
+    retry.onclick = () => void this.loadPdf(file.path);
+
+    const copy = actions.createEl("button", { text: "复制错误信息" });
+    copy.onclick = () => {
+      void navigator.clipboard
+        .writeText(`[PDF View] 加载失败\n文件：${file.path}\n大小：${sizeText}\n错误：${raw}`)
+        .then(() => new Notice("错误信息已复制"))
+        .catch(() => new Notice("复制失败，可在控制台查看完整错误"));
+    };
+
+    new Notice(`无法打开 ${file.basename}：${raw}`, 8000);
+    console.error("[pdf-annotator] 加载 PDF 失败", file.path, err);
   }
 
   /**
