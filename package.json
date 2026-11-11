@@ -29,7 +29,8 @@
     "build": "npm run typecheck && node esbuild.config.mjs production",
     "typecheck": "tsc -noEmit -skipLibCheck",
     "pretest": "esbuild test/entry.ts --bundle --platform=node --format=cjs --outfile=test/_bundle.cjs --log-level=warning --external:obsidian --external:canvas",
-    "test": "node test/run.cjs"
+    "test": "node test/run.cjs && node test/load-smoke.cjs",
+    "test:load": "node test/load-smoke.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
