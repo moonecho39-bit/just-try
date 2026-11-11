@@ -65,15 +65,21 @@ export default class PdfAnnotatorPlugin extends Plugin {
       void this.openActivePdf();
     });
 
-    /* 命令 1：打开当前 PDF */
+    /*
+     * ── 为什么这里的命令都用 callback 而不是 checkCallback ─────────────
+     * Obsidian 的规则：checkCallback 返回 false 的命令**不会出现在命令面板**。
+     * 最初 9 条命令全用 checkCallback（条件是"当前有 PDF 批注视图"），
+     * 结果是没打开 PDF 时在命令面板搜插件名一片空白 —— 用户以为插件没装上。
+     * 所以改成常驻可见，条件不满足时给一句能照着做的 Notice，
+     * 让"插件到底有没有加载"这件事在面板里直接可见。
+     */
+
+    /* 命令 1：打开当前 PDF（唯一的常驻入口，也是加载成功的活证据） */
     this.addCommand({
       id: "open-in-annotator-view",
       name: "用批注视图打开当前 PDF",
-      checkCallback: (checking: boolean) => {
-        const file = this.getActivePdfFile();
-        if (!file) return false;
-        if (!checking) void this.openPdf(file);
-        return true;
+      callback: () => {
+        void this.openActivePdf();
       },
     });
 
@@ -82,11 +88,9 @@ export default class PdfAnnotatorPlugin extends Plugin {
       id: "copy-selection-link",
       name: "复制选中文字的 PDF 链接",
       hotkeys: [{ modifiers: ["Mod", "Shift"], key: "C" }],
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) void view.copySelectionLink(false);
-        return true;
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) void view.copySelectionLink(false);
       },
     });
 
@@ -94,11 +98,9 @@ export default class PdfAnnotatorPlugin extends Plugin {
     this.addCommand({
       id: "copy-selection-callout",
       name: "复制选中文字为 PDF Callout",
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) void view.copySelectionLink(true);
-        return true;
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) void view.copySelectionLink(true);
       },
     });
 
@@ -106,11 +108,9 @@ export default class PdfAnnotatorPlugin extends Plugin {
     this.addCommand({
       id: "toggle-backlinks-panel",
       name: "显示 / 隐藏反向链接面板",
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) view.toggleBacklinkPanel();
-        return true;
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) view.toggleBacklinkPanel();
       },
     });
 
@@ -118,11 +118,9 @@ export default class PdfAnnotatorPlugin extends Plugin {
     this.addCommand({
       id: "debug-selection-coords",
       name: "调试：打印当前选区的归一化坐标",
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) this.dumpSelection(view);
-        return true;
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) this.dumpSelection(view);
       },
     });
 
@@ -130,22 +128,34 @@ export default class PdfAnnotatorPlugin extends Plugin {
     this.addCommand({
       id: "clear-page-annotations",
       name: "清除当前页的草稿批注",
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) view.clearCurrentPage();
-        return true;
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) view.clearCurrentPage();
       },
     });
 
     this.addCommand({
       id: "clear-all-annotations",
       name: "清除本文档的全部草稿批注",
-      checkCallback: (checking: boolean) => {
+      callback: () => {
+        const view = this.requirePdfView();
+        if (view) view.clearAllAnnotations();
+      },
+    });
+
+    /* 命令 8：排查用 —— 一眼确认插件加载了没有、加载的是哪个版本 */
+    this.addCommand({
+      id: "show-status",
+      name: "显示插件状态（排查用）",
+      callback: () => {
         const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-        if (!view) return false;
-        if (!checking) view.clearAllAnnotations();
-        return true;
+        const lines = [
+          `PDF View for Obsidian v${this.manifest.version}`,
+          `当前库：${this.app.vault.getName()}`,
+          `批注视图：${view ? "已打开" : "未打开"}`,
+        ];
+        new Notice(lines.join("\n"), 6000);
+        console.info("[PDF View]", lines.join(" | "));
       },
     });
 
@@ -167,11 +177,9 @@ export default class PdfAnnotatorPlugin extends Plugin {
       this.addCommand({
         id: `ai-${task.id}`,
         name: `AI ${task.label}选中文字`,
-        checkCallback: (checking: boolean) => {
-          const view = this.app.workspace.getActiveViewOfType(PDFFileView);
-          if (!view) return false;
-          if (!checking) void view.runAiTask(task.id);
-          return true;
+        callback: () => {
+          const view = this.requirePdfView();
+          if (view) void view.runAiTask(task.id);
         },
       });
     }
@@ -180,6 +188,24 @@ export default class PdfAnnotatorPlugin extends Plugin {
      * 刻意**不**调用 registerExtensions(["pdf"], PDF_VIEW_TYPE)
      * 见文件头注释：那等于替换原生查看器，违背本项目第一原则。
      */
+
+    // 一行日志：出问题时让用户能在控制台（Ctrl+Shift+I）确认到底加载了没有
+    console.info(`[PDF View] v${this.manifest.version} loaded · vault=${this.app.vault.getName()}`);
+  }
+
+  /**
+   * 命令的公共前置检查。
+   *
+   * 命令常驻可见后，就必须替用户兜住"条件不满足"的情况：
+   * 给一句能照着做的提示（去哪、点什么），而不是静默什么都不发生。
+   */
+  private requirePdfView(): PDFFileView | null {
+    const view = this.app.workspace.getActiveViewOfType(PDFFileView);
+    if (!view) {
+      new Notice("请先用批注视图打开一个 PDF：选中 PDF → 命令面板搜「用批注视图打开当前 PDF」");
+      return null;
+    }
+    return view;
   }
 
   /** 统一的保存入口：所有 UI 改完设置都调它 */
