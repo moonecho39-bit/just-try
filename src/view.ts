@@ -52,6 +52,15 @@ import {
   createAnnotationId,
   isTextMark,
 } from "./annot/types";
+import {
+  KIND_LABEL,
+  annotationRects,
+  canComment,
+  commentAnchorPoint,
+  commentText,
+  noteFromMark,
+  rectAtPoint,
+} from "./annot/commentTarget";
 import { AnnotationStore } from "./annot/annotationStore";
 import { TOOL_META, TOOL_ORDER, ToolState } from "./annot/toolState";
 import { PageLayer, isDrawingTool } from "./annot/pageLayer";
@@ -84,6 +93,7 @@ import { NoteEditor } from "./ui/noteEditor";
 import { ContextMenu, type MenuItem } from "./ui/contextMenu";
 import { BacklinkPanel } from "./ui/backlinkPanel";
 import { CardOverlay, type CardVM } from "./ui/noteCards";
+import { CommentPopover } from "./ui/commentPopover";
 import { MarkdownPreview } from "./ui/mdRender";
 import { FloatingHint } from "./ui/hint";
 import { LinkDrag } from "./ui/linkDrag";
@@ -239,6 +249,8 @@ export class PDFFileView extends ItemView {
   /** 批注卡片浮层（页面外侧那条"看得见的批注"） */
   private cardOverlay: CardOverlay | null = null;
   private cardsBtnEl!: HTMLElement;
+  /** 「点一下标记 → 写评论」的气泡（挂在 body 上，不受页面裁切影响） */
+  private readonly commentPopover = new CommentPopover();
   /** 卡片默认开：用户要的就是"看得见"，默认关等于没做 */
   private cardsVisible = true;
   /** 自增代际号：切换文件 / 重建页面后，旧的异步任务据此自我作废 */
@@ -374,7 +386,11 @@ export class PDFFileView extends ItemView {
     this.unsubscribes.push(
       this.store.change.on((change) => {
         for (const page of change.pages) {
-          this.pages.get(page)?.layer.setAnnotations(this.store.getPage(page));
+          const el = this.pages.get(page);
+          if (!el) continue;
+          el.layer.setAnnotations(this.store.getPage(page));
+          // 批注多/少一条会改变"哪些回链该让位"（见 backlinksFor）
+          el.layer.setBacklinks(this.backlinksFor(page));
         }
         this.syncHistoryButtons();
         // 增删改任何一条批注都可能改变卡片（正文、位置、有无），统一刷新
@@ -430,6 +446,7 @@ export class PDFFileView extends ItemView {
     this.colorPopover.destroy();
     this.noteEditor.destroy();
     this.contextMenu.destroy();
+    this.commentPopover.destroy();
     this.hint.destroy();
     this.linkDrag.destroy();
     this.backlinkPanel?.destroy();
@@ -817,6 +834,7 @@ export class PDFFileView extends ItemView {
     this.selectionToolbar.hide();
     this.noteEditor.close(false);
     this.contextMenu.close();
+    this.commentPopover.close(false);
     this.hint.hide();
     this.store.reset();
     // 换文件：文本索引、回链、进行中的扫描全部作废
@@ -964,6 +982,7 @@ export class PDFFileView extends ItemView {
         onPlaceNote: (at) => this.createNote(n, at),
         onOpenNote: (anno) => this.openNoteEditor(anno),
         onOpenNoteAnchor: (anno) => this.bg("打开便签", this.openNoteBlock(anno)),
+        onMarkTap: (anno, ev) => this.showCommentFor(anno, ev),
         onContextMenu: (anno, ev) => this.showAnnotationMenu(anno, ev),
         onBacklinkActivate: (mark) => this.bg("跳转回链", this.activateBacklink(mark)),
         onBacklinkHover: (mark, ev) => this.onPageBacklinkHover(mark, ev),
@@ -972,7 +991,7 @@ export class PDFFileView extends ItemView {
 
       this.pages.set(n, { root, canvas, textLayer, layer, geometry, state: "idle" });
       layer.setAnnotations(this.store.getPage(n));
-      layer.setBacklinks(this.marksByPage.get(n) ?? []);
+      layer.setBacklinks(this.backlinksFor(n));
     }
   }
 
@@ -1029,6 +1048,8 @@ export class PDFFileView extends ItemView {
   private readonly onScroll = (): void => {
     // 选区工具栏是 fixed 定位，滚动后位置就飘了，直接收掉
     this.selectionToolbar.hide();
+    // 评论气泡同样锚在屏幕坐标上：滚动后贴着的是旧位置，收掉（编辑中的草稿会先保存）
+    this.commentPopover.close(true);
     // 悬停高亮停在旧页上会让人迷惑
     if (this.hover) this.setHoverBacklink(null);
     this.hint.hide();
@@ -1412,21 +1433,130 @@ export class PDFFileView extends ItemView {
     return { left: x - size / 2, top: y - size / 2, right: x + size / 2, bottom: y + size / 2, width: size, height: size };
   }
 
+  private cursorBox(ev: ClientPos, size = 6): RectLike {
+    return {
+      left: ev.clientX,
+      top: ev.clientY,
+      right: ev.clientX + size,
+      bottom: ev.clientY + size,
+      width: size,
+      height: size,
+    };
+  }
+
+  /* ================================================================ *
+   * 点一下标记 → 写评论（WPS / Zotero 的那套手势）
+   * ================================================================ */
+
+  /**
+   * 气泡锚点：优先"被点中的那一行"，其次"整条标记的外接框"。
+   *
+   * 为什么不用鼠标位置：气泡的核心用途是"看着这段字写评论"，
+   * 贴着那一行出现才看得出因果；纯粹跟着光标飘，视线还得回去找标记。
+   */
+  private anchorForAnnotation(anno: Annotation, ev?: ClientPos): RectLike | null {
+    const el = this.pages.get(anno.page);
+    if (!el) return null;
+    const r = el.root.getBoundingClientRect();
+    if (r.width <= 0) return null;
+
+    const rects = annotationRects(anno);
+    let target: Rect | null = null;
+    if (ev) {
+      const p = { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
+      target = rectAtPoint(rects, p);
+    }
+    target = target ?? rects[0] ?? null;
+
+    if (target) {
+      const left = r.left + target.x * r.width;
+      const top = r.top + target.y * r.height;
+      const w = Math.max(8, target.w * r.width);
+      const h = Math.max(8, target.h * r.height);
+      return { left, top, right: left + w, bottom: top + h, width: w, height: h };
+    }
+
+    if (anno.kind === "note") return this.clientBoxFor(anno.page, anno.at);
+    return ev ? this.cursorBox(ev) : null;
+  }
+
+  /**
+   * 弹出 / 刷新评论气泡。
+   * forceEdit = 从右键菜单进来时直接开写（用户已经明确表达"我要加批注"）。
+   */
+  private showCommentFor(anno: Annotation, ev?: ClientPos, forceEdit = false): void {
+    const anchor = this.anchorForAnnotation(anno, ev);
+    if (!anchor) return;
+
+    this.selectionToolbar.hide();
+    this.contextMenu.close();
+    this.hint.hide();
+
+    this.commentPopover.show(
+      {
+        id: anno.id,
+        color: anno.color,
+        page: anno.page,
+        kindLabel: KIND_LABEL[anno.kind],
+        comment: commentText(anno),
+        canComment: canComment(anno),
+      },
+      anchor,
+      {
+        onSave: (text) => this.saveComment(anno.id, text),
+        onDelete: () => this.removeAnnotationById(anno.id),
+        onOpenInNote:
+          anno.kind === "note" ? () => this.bg("打开便签", this.openNoteBlock(anno)) : undefined,
+        renderBody: (el, md) => this.renderCardBody(el, md),
+      },
+      { edit: forceEdit },
+    );
+  }
+
+  /**
+   * 写 / 改评论。
+   *
+   * 走 noteFromMark 而不是直接在原批注上加字段：
+   * 高亮这类标记只活在内存里，关掉视图就没了；只有便签那条路径会落盘
+   * （伴生笔记里一条 Callout）。两者共用同一个 id，所以撤销只要一步。
+   */
+  private saveComment(id: string, text: string): void {
+    const anno = this.store.get(id);
+    if (!anno) return;
+    const note = noteFromMark(anno, text);
+    if (!note) {
+      new Notice("这条标记不能写评论");
+      return;
+    }
+    this.store.update(note);
+    this.bg("保存评论", this.persistNote(note));
+  }
+
+  /** 删掉任意一条批注（评论气泡里的「删除」） */
+  private removeAnnotationById(id: string): void {
+    const anno = this.store.get(id);
+    if (!anno) return;
+    this.store.remove(id);
+    this.noteLocations.delete(id);
+    if (anno.kind === "note") this.bg("删除批注", this.deleteNoteBlock(id));
+  }
+
   private showAnnotationMenu(anno: Annotation, ev: ClientPos): void {
     const items: MenuItem[] = [];
     /*
-     * 「添加批注」放第一条：这是用户在高亮上最常想做的事，
+     * 「添加评论」放第一条：这是用户在高亮上最常想做的事，
      * 也是把"高亮"升级成"看得见的批注卡片"的唯一入口。
+     * 走气泡而不是便签浮层：右键的人多半只想补一句话。
      */
-    if (isTextMark(anno)) {
+    if (canComment(anno)) {
       items.push({
-        label: "添加批注…",
+        label: commentText(anno) ? "编辑评论…" : "添加评论…",
         icon: "message-square",
-        onClick: () => this.attachNoteToMark(anno),
+        onClick: () => this.showCommentFor(anno, ev, true),
       });
     }
     if (anno.kind === "note") {
-      items.push({ label: "编辑便签", icon: "pencil", onClick: () => this.openNoteEditor(anno) });
+      items.push({ label: "编辑便签（富文本）", icon: "pencil", onClick: () => this.openNoteEditor(anno) });
       items.push({ label: "在笔记中打开这一条", icon: "external-link", onClick: () => this.bg("打开便签", this.openNoteBlock(anno)) });
     }
     items.push({ label: "复制链接", icon: "link", onClick: () => this.bg("复制链接", this.copyAnnotationLink(anno, false)) });
@@ -1566,8 +1696,28 @@ export class PDFFileView extends ItemView {
 
     if (token !== this.scanToken) return;
     this.marksByPage = byPage;
-    for (const [n, el] of this.pages) el.layer.setBacklinks(byPage.get(n) ?? []);
+    for (const [n, el] of this.pages) el.layer.setBacklinks(this.backlinksFor(n));
     this.dedupeDraftHighlights();
+  }
+
+  /**
+   * 本页真正要画出来的回链高亮。
+   *
+   * 带评论的便签自己已经画了一层底纹（而且它就是这条链接的真身），
+   * 再把回链叠上去颜色会明显变深，看起来像"同一处有两条批注"。
+   * 所以这里按几何重合把这类回链剔掉。
+   * 只对**便签**这么做：普通高亮是内存草稿，重扫后被回链顶替是预期行为
+   * （由 dedupeDraftHighlights 直接把草稿删掉）。
+   */
+  private backlinksFor(page: number): BacklinkMark[] {
+    const marks = this.marksByPage.get(page) ?? [];
+    if (marks.length === 0) return marks;
+    const covered = this.store
+      .getPage(page)
+      .filter((a) => a.kind === "note" && (a.rects?.length ?? 0) > 0)
+      .map((a) => annotationRects(a));
+    if (covered.length === 0) return marks;
+    return marks.filter((m) => !covered.some((r) => rectsOverlap(r, m.rects)));
   }
 
   /**
@@ -2090,12 +2240,13 @@ export class PDFFileView extends ItemView {
        * 只有 rect= 的是纯图钉（钉在一个点上），按中心点放即可。
        */
       const rects = idx && target ? linkRectsOnPage(target, idx) : [];
-      const first = rects[0];
-      const at = first
-        ? { x: first.x + Math.min(first.w, 0.02), y: first.y + Math.min(first.h, 0.02) }
-        : idx && target?.rect
-          ? quadCenterToNorm(target.rect, idx.transform, idx.width, idx.height, applyTransform)
-          : { x: 0.5, y: 0.5 };
+      // 图钉落在第一行右端：钉在左上角会正好压住用户批注的那几个字
+      const at =
+        rects.length > 0
+          ? commentAnchorPoint(rects)
+          : idx && target?.rect
+            ? quadCenterToNorm(target.rect, idx.transform, idx.width, idx.height, applyTransform)
+            : { x: 0.5, y: 0.5 };
 
       const now = Date.now();
       // silent：从笔记读回来的便签不占撤销栈（否则 Ctrl+Z 要先撤掉一堆历史便签）
@@ -2190,30 +2341,22 @@ export class PDFFileView extends ItemView {
   }
 
   /**
-   * 把一段高亮 / 下划线升级成「带批注的便签」。
+   * 把一段高亮 / 下划线 / 框选升级成「带批注的便签」，并立刻打开富文本编辑器。
    *
    * 刻意复用同一个 id 改 kind，而不是新建一条批注：
    *   · store.update 只记一条 before/after，撤销是一步（而不是"撤一次留个空图钉"）；
    *   · 不会出现"高亮 + 图钉"两份数据指向同一段文字，删一个还剩一个；
    *   · 落盘格式与普通便签完全一致，已存在的笔记一条都不用迁移。
+   *
+   * 与评论气泡的分工：这里是"要写一段"，所以给富文本（预览 / 粘贴图片）；
+   * 点标记弹气泡那条路是"补一句话"，体量更小。
    */
   private attachNoteToMark(mark: Annotation): void {
-    if (!isTextMark(mark)) return;
-    const first = mark.rects[0];
-    if (!first) return;
-
-    const note: NoteAnnotation = {
-      id: mark.id,
-      kind: "note",
-      page: mark.page,
-      color: mark.color,
-      at: { x: first.x + Math.min(first.w, 0.02), y: first.y + Math.min(first.h, 0.02) },
-      body: "",
-      rects: mark.rects.map((r) => ({ ...r })),
-      opacity: mark.kind === "highlight" ? mark.opacity : 0.25,
-      createdAt: mark.createdAt,
-      updatedAt: Date.now(),
-    };
+    const note = noteFromMark(mark, mark.kind === "note" ? mark.body : "");
+    if (!note) {
+      new Notice("箭头 / 手绘上没有可圈住的文字，换成「矩形框」再批注");
+      return;
+    }
 
     this.store.update(note);
     // 先落盘（写进伴生笔记）再开编辑器：用户直接关掉浮层，这条批注也不会丢
@@ -2284,6 +2427,7 @@ export class PDFFileView extends ItemView {
       this.selectionToolbar.hide();
       this.colorPopover.close();
       this.contextMenu.close();
+      this.commentPopover.close(false);
       this.noteEditor.close(true);
       this.hint.hide();
       return;

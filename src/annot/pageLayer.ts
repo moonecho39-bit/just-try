@@ -38,6 +38,7 @@ import { arrowGeometry, boxFromPoints, clampPoint, distanceToSegment, fmt, point
 import { svgEl } from "../dom";
 import { attachPointer, capturePointer, type PointerSample } from "../ui/pointer";
 import { isLightColor } from "./palettes";
+import { annotationRects } from "./commentTarget";
 
 export interface PageLayerHooks {
   /** 拖拽绘制完成，交给上层入 store */
@@ -46,6 +47,11 @@ export interface PageLayerHooks {
   onPlaceNote(at: Point): void;
   /** 点中已有便签 */
   onOpenNote(anno: NoteAnnotation): void;
+  /**
+   * 单击（不是拖选、不是右键）某条批注 → 上层弹出「添加评论」气泡。
+   * 这是"先画标记、再点它写评论"的主路径，见 commentTarget.ts 的说明。
+   */
+  onMarkTap?(anno: Annotation, pos: ClientPos): void;
   /** Ctrl/⌘ 点图钉：跳到伴生笔记里那条 Callout（= 图钉的锚点链接） */
   onOpenNoteAnchor?(anno: NoteAnnotation): void;
   /** 右键 / 长按点中某条批注 */
@@ -94,6 +100,11 @@ type Draft =
 const HIT_SLOP = 6;
 /** 小于这个尺寸的拖拽当作误触（只点了一下） */
 const MIN_SHAPE_SIZE = 2.5;
+/**
+ * "点一下"与"拖选文字"的分界（CSS px）。
+ * 松手时位移超过它就算拖拽 —— 拖选完不该再弹评论气泡。
+ */
+const TAP_SLOP = 4;
 
 export class PageLayer {
   readonly svg: SVGSVGElement;
@@ -121,6 +132,17 @@ export class PageLayer {
   private destroyed = false;
   /** 指针适配层的解绑函数（svg 与宿主各一个） */
   private detachers: Array<() => void> = [];
+
+  /**
+   * 「点一下」的判定素材。
+   * 不能用 dblclick / click 的 detail 判断，也不能只看 selection 是否为空：
+   * 在文字上单击，浏览器同样会把光标放进文本层（选区是 collapsed 的）。
+   * 唯一可靠的办法是自己记起点、自己量位移。
+   */
+  private tapStart: { x: number; y: number } | null = null;
+  private tapMoved = false;
+  /** 这次按下已经被图钉 / Ctrl 点锚点消费掉，click 不该再弹气泡 */
+  private tapConsumed = false;
 
   constructor(
     private readonly host: HTMLElement,
@@ -181,6 +203,7 @@ export class PageLayer {
     host.addEventListener("pointerleave", this.onHostPointerLeave);
     host.addEventListener("dblclick", this.onHostDoubleClick);
     host.addEventListener("contextmenu", this.onContextMenu);
+    host.addEventListener("click", this.onHostClick);
 
     this.syncToolClass();
   }
@@ -361,6 +384,7 @@ export class PageLayer {
     this.host.removeEventListener("pointerleave", this.onHostPointerLeave);
     this.host.removeEventListener("dblclick", this.onHostDoubleClick);
     this.host.removeEventListener("contextmenu", this.onContextMenu);
+    this.host.removeEventListener("click", this.onHostClick);
     this.svg.remove();
     this.nodes.clear();
     this.signatures.clear();
@@ -373,6 +397,31 @@ export class PageLayer {
    * 命中检测（几何，不依赖 DOM）
    * ================================================================ */
 
+  /**
+   * 图钉的命中半径（BASE 空间）。
+   * 图钉是"控件"，视觉尺寸恒定，所以半径要除以 scale。
+   */
+  private pinRadius(): number {
+    return NOTE_PIN_RADIUS / (this.geo.scale || 1) + 3;
+  }
+
+  /**
+   * 只命中图钉 —— 不含它底下的底纹。
+   * 「点图钉 = 开富文本编辑器」与「点底纹 = 弹评论气泡」是两件事，
+   * 混用一个 hitTest 会让点高亮中间也跳出编辑器。
+   */
+  hitPin(bx: number, by: number): NoteAnnotation | null {
+    const { baseWidth, baseHeight } = this.geo;
+    for (let i = this.annos.length - 1; i >= 0; i--) {
+      const a = this.annos[i];
+      if (a.kind !== "note") continue;
+      const cx = a.at.x * baseWidth;
+      const cy = a.at.y * baseHeight;
+      if (Math.hypot(bx - cx, by - cy) <= this.pinRadius()) return a;
+    }
+    return null;
+  }
+
   hitTest(bx: number, by: number): Annotation | null {
     const slop = HIT_SLOP / (this.geo.scale || 1);
     const { baseWidth, baseHeight } = this.geo;
@@ -382,9 +431,20 @@ export class PageLayer {
       const a = this.annos[i];
       switch (a.kind) {
         case "note": {
+          /*
+           * 带底纹的批注（高亮 / 下划线 / 框选升级而来）整块都要能命中：
+           * 用户想的是"点我画的那段字"，不是"精确点中那枚 20px 的图钉"。
+           * 图钉仍然保留 —— 它是唯一一个点了直接开富文本编辑器的入口。
+           */
+          if (a.rects && a.rects.length > 0) {
+            for (const r of a.rects) {
+              const box = { x: r.x * baseWidth, y: r.y * baseHeight, w: r.w * baseWidth, h: r.h * baseHeight };
+              if (pointInBox(bx, by, box)) return a;
+            }
+          }
           const cx = a.at.x * baseWidth;
           const cy = a.at.y * baseHeight;
-          if (Math.hypot(bx - cx, by - cy) <= NOTE_PIN_RADIUS / (this.geo.scale || 1) + 3) return a;
+          if (Math.hypot(bx - cx, by - cy) <= this.pinRadius()) return a;
           break;
         }
         case "highlight":
@@ -648,6 +708,11 @@ export class PageLayer {
     if (TOOL_META[this.tool.active].interaction === "drag") return;
     if (this.tool.active !== "select") return;
 
+    // 记录"这一次按下"的起点：松手时靠位移判断是点选还是拖选
+    this.tapStart = { x: ev.clientX, y: ev.clientY };
+    this.tapMoved = false;
+    this.tapConsumed = false;
+
     const base = this.toBase(ev);
 
     /*
@@ -663,6 +728,7 @@ export class PageLayer {
       if (anno) {
         ev.native.preventDefault();
         ev.native.stopPropagation();
+        this.tapConsumed = true;
         this.hooks.onDragStart?.(anno, ev);
         return;
       }
@@ -674,25 +740,34 @@ export class PageLayer {
       if (mark) {
         ev.native.preventDefault();
         ev.native.stopPropagation();
+        this.tapConsumed = true;
         this.hooks.onBacklinkActivate?.(mark, ev);
         return;
       }
     }
 
-    const hit = this.hitTest(base.x, base.y);
-    if (hit?.kind !== "note") return;
+    /*
+     * 只认图钉本身，不认它底下那层底纹。
+     * hitTest 现在也会命中带底纹批注的整块矩形（为了"点标记弹评论"），
+     * 如果这里沿用 hitTest，点在高亮中间就会被当成"点中图钉" → 直接开富文本编辑器，
+     * 文字也就选不中了。所以图钉单独算一次半径命中。
+     */
+    const pin = this.hitPin(base.x, base.y);
+    if (!pin) return;
 
     // 点中图钉：拦住文本选择，直接开编辑器
     ev.native.preventDefault();
     ev.native.stopPropagation();
+    // 这一次点击已经有归宿了（开编辑器 / 跳锚点），别再弹评论气泡
+    this.tapConsumed = true;
 
     // Ctrl/⌘ 点 = 跳到笔记里那条 Callout（图钉等价于一条块引用链接）。
     // 单击开编辑器、Ctrl 点跳笔记，两个动作都保留：读的时候多半想改，写完多半想看上下文。
     if (!touch && (ev.ctrlKey || ev.metaKey)) {
-      this.hooks.onOpenNoteAnchor?.(hit);
+      this.hooks.onOpenNoteAnchor?.(pin);
       return;
     }
-    this.hooks.onOpenNote(hit);
+    this.hooks.onOpenNote(pin);
   };
 
   /**
@@ -726,12 +801,43 @@ export class PageLayer {
   /**
    * 触屏的"抬起"。
    * 单指轻点已经在 onHostPointerDown 里处理过了（点图钉开编辑器），
-   * 这里只负责在松开时把 hover 态清掉 —— 否则点过的回链会一直带着描边。
+   * 这里负责两件事：松开时清掉 hover 态（否则点过的回链会一直带着描边），
+   * 以及给"这次到底算不算拖拽"下结论 —— click 紧随其后，要用这个结论。
    */
   private readonly onHostTapUp = (ev: PointerSample): void => {
     if (this.destroyed) return;
+    if (this.tapStart) {
+      const dx = ev.clientX - this.tapStart.x;
+      const dy = ev.clientY - this.tapStart.y;
+      this.tapMoved = Math.hypot(dx, dy) > TAP_SLOP;
+      this.tapStart = null;
+    }
     if (ev.pointerType === "mouse") return;
     this.host.classList.remove("can-drag-link");
+  };
+
+  /**
+   * 单击某条批注 → 让上层弹出「添加评论」气泡（WPS / Zotero 的那种）。
+   *
+   * 为什么非要等到 click、而不是在 pointerdown 里做：
+   *   在 pointerdown 里弹，会把"从这条高亮上开始拖选文字"也当成点击，
+   *   气泡一闪一闪，还会抢走拖拽起点。等到 click 且位移很小，才是真的点了一下。
+   *
+   * 三条排除：拖过（tapMoved）、这次按下已有归宿（tapConsumed，如点中图钉）、
+   * 松手时确实选中了文字（拖选 / 三击选段）。
+   */
+  private readonly onHostClick = (ev: MouseEvent): void => {
+    if (this.destroyed || !this.hooks.onMarkTap) return;
+    if (this.tool.active !== "select") return;
+    if (this.tapMoved || this.tapConsumed) return;
+
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+
+    const base = this.toBase(ev);
+    const hit = this.hitTest(base.x, base.y);
+    if (!hit) return;
+    this.hooks.onMarkTap(hit, ev);
   };
 
   /**
@@ -745,12 +851,14 @@ export class PageLayer {
     if (this.tool.active !== "select") return;
 
     const base = this.toBase(ev);
+    // 图钉优先：长按图钉 = 直接编辑，长按底纹 = 弹菜单（与桌面右键一致）
+    const pin = this.hitPin(base.x, base.y);
+    if (pin) {
+      this.hooks.onOpenNote(pin);
+      return;
+    }
     const hit = this.hitTest(base.x, base.y);
     if (hit) {
-      if (hit.kind === "note") {
-        this.hooks.onOpenNote(hit);
-        return;
-      }
       this.hooks.onContextMenu(hit, ev);
       return;
     }
@@ -765,7 +873,7 @@ export class PageLayer {
   private readonly onHostDoubleTap = (ev: PointerSample): void => {
     if (this.destroyed || this.tool.active !== "select") return;
     const base = this.toBase(ev);
-    if (this.hitTest(base.x, base.y)?.kind === "note") return;
+    if (this.hitPin(base.x, base.y)) return;
     const mark = this.hitTestBacklink(base.x, base.y);
     if (mark) this.hooks.onBacklinkActivate?.(mark, ev);
   };
@@ -786,7 +894,7 @@ export class PageLayer {
     if (this.destroyed || this.tool.active !== "select") return;
     const base = this.toBase(ev);
     // 图钉压在回链上时，让图钉优先
-    if (this.hitTest(base.x, base.y)?.kind === "note") return;
+    if (this.hitPin(base.x, base.y)) return;
 
     const mark = this.hitTestBacklink(base.x, base.y);
     if (!mark) return;
@@ -908,20 +1016,52 @@ export class PageLayer {
          *   ① 底纹（告诉人这段被批注了）② 图钉（点它开编辑器）。
          * 两者必须分装在两个 <g> 里：buildPin 会给自己那个 g 设 transform，
          * 底纹若和它在同一个 g 里，会跟着整体 translate 到锚点上，位置全错。
+         *
+         * 底纹按 `mark` 画回原样：从下划线、框选升级来的批注，不该突然变成
+         * 一块实心色块 —— 那会让人以为"我原来画的东西被改掉了"。
          */
         if (a.rects && a.rects.length > 0) {
           const mark = svgEl("g", { class: "pdfa-note-mark" }, g);
+          const style = a.mark ?? "highlight";
+          const opacity = a.opacity ?? ANNOT_DEFAULTS.highlightOpacity;
+
           for (const r of a.rects) {
+            const x = r.x * bw;
+            const y = r.y * bh;
+            const w = r.w * bw;
+            const h = r.h * bh;
+
+            if (style === "underline") {
+              const ly = y + h - ANNOT_DEFAULTS.underlineThickness / 2;
+              svgEl(
+                "line",
+                {
+                  class: "pdfa-ul",
+                  x1: x,
+                  y1: ly,
+                  x2: x + w,
+                  y2: ly,
+                  stroke: a.color,
+                  "stroke-width": ANNOT_DEFAULTS.underlineThickness,
+                  "stroke-linecap": "butt",
+                },
+                mark,
+              );
+              continue;
+            }
+
             svgEl(
               "rect",
               {
-                class: "pdfa-hl",
-                x: r.x * bw,
-                y: r.y * bh,
-                width: r.w * bw,
-                height: r.h * bh,
+                class: style === "box" ? "pdfa-box" : "pdfa-hl",
+                x,
+                y,
+                width: w,
+                height: h,
                 fill: a.color,
-                "fill-opacity": a.opacity ?? ANNOT_DEFAULTS.highlightOpacity,
+                "fill-opacity": style === "box" ? 0.08 : opacity,
+                stroke: style === "box" ? a.color : undefined,
+                "stroke-width": style === "box" ? ANNOT_DEFAULTS.shapeStrokeWidth : undefined,
               },
               mark,
             );
@@ -962,7 +1102,7 @@ export class PageLayer {
       },
       g,
     );
-    label.textContent = "📌";
+    label.textContent = a.rects && a.rects.length > 0 ? "💬" : "📌";
   }
 
   private shapeBox(a: ShapeAnnotation) {

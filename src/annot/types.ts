@@ -83,6 +83,13 @@ export interface InkAnnotation extends AnnotationBase {
   opacity: number;
 }
 
+/**
+ * 便签底纹原本的形态。
+ * 「高亮 + 评论」升级成便签之后，页面上仍该看得出它原本是底纹、下划线还是框选，
+ * 所以把形态单独记一份；纯图钉（无 rects）没有这个字段。
+ */
+export type NoteMarkStyle = "highlight" | "underline" | "box";
+
 export interface NoteAnnotation extends AnnotationBase {
   kind: "note";
   /** 图钉锚点（NORM）。图钉本身有固定像素尺寸，不随缩放变形 */
@@ -101,6 +108,8 @@ export interface NoteAnnotation extends AnnotationBase {
   rects?: Rect[];
   /** 底纹不透明度（仅 rects 存在时有意义），缺省按高亮处理 */
   opacity?: number;
+  /** 底纹原本的形态；缺省 = highlight（老笔记没有这个字段） */
+  mark?: NoteMarkStyle;
 }
 
 export type Annotation =

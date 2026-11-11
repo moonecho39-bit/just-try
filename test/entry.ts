@@ -96,6 +96,15 @@ import {
   trailingJunkLength,
   trimTrailingJunk,
 } from "../src/pdf/trailer";
+import {
+  annotationRects,
+  canComment,
+  commentAnchorPoint,
+  commentText,
+  markStyleOf,
+  noteFromMark,
+  rectAtPoint,
+} from "../src/annot/commentTarget";
 
 let failed = 0;
 
@@ -959,6 +968,118 @@ function testCardLayout(): void {
 }
 
 /**
+ * [Q] 「点标记 → 写评论」的纯逻辑
+ *
+ * 这条链路里最容易错的是**几何**与**形态**：
+ *   · 锚点取哪一行（取错就贴到别的段落去了）；
+ *   · 升级成便签后 rects 是从原批注**拷贝**过来的（共享引用会让撤销串味）；
+ *   · 原本是下划线 / 框选的，升级后仍要按原样画（mark 字段）。
+ */
+function testCommentTarget(): void {
+  console.log("\n[Q] 评论目标与形态");
+
+  const base = { page: 1, color: "#ffe066", createdAt: 1, updatedAt: 1 };
+  const line = { x: 0.1, y: 0.2, w: 0.4, h: 0.03 };
+
+  const hl: HighlightAnnotation = { ...base, id: "hl", kind: "highlight", rects: [line], opacity: 0.34 };
+  const ul: Annotation = { ...base, id: "ul", kind: "underline", rects: [line], thickness: 2 };
+  const rect: Annotation = {
+    ...base,
+    id: "rc",
+    kind: "rect",
+    from: { x: 0.6, y: 0.5 },
+    to: { x: 0.2, y: 0.3 },
+    strokeWidth: 2,
+  };
+  const arrow: Annotation = {
+    ...base,
+    id: "ar",
+    kind: "arrow",
+    from: { x: 0.1, y: 0.1 },
+    to: { x: 0.5, y: 0.5 },
+    strokeWidth: 2,
+  };
+  const ink: InkAnnotation = {
+    ...base,
+    id: "in",
+    kind: "ink",
+    mode: "pencil",
+    points: [
+      [0.4, 0.6, 2],
+      [0.2, 0.3, 2],
+      [0.5, 0.35, 2],
+    ],
+    width: 2,
+    opacity: 1,
+  };
+  const oldNote: NoteAnnotation = {
+    ...base,
+    id: "nt",
+    kind: "note",
+    at: { x: 0.5, y: 0.5 },
+    body: "旧评论",
+    rects: [line],
+  };
+
+  // 可评论的只有"能圈住文字"的几种
+  check("高亮 / 下划线 / 框选 / 便签可评论", canComment(hl) && canComment(ul) && canComment(rect) && canComment(oldNote));
+  check("箭头 / 手绘不可评论", !canComment(arrow) && !canComment(ink));
+
+  // 框选的矩形要能吃掉反向拖拽（从右下往左上拖）
+  const box = annotationRects(rect)[0];
+  check("框选矩形与拖拽方向无关", near(box.x, 0.2) && near(box.y, 0.3) && near(box.w, 0.4) && near(box.h, 0.2), box);
+
+  // 手绘的外接框
+  const inkBox = annotationRects(ink)[0];
+  check("手绘外接框覆盖全部点", near(inkBox.x, 0.2) && near(inkBox.y, 0.3) && near(inkBox.w, 0.3) && near(inkBox.h, 0.3), inkBox);
+
+  // 纯图钉没有底纹
+  const pin: NoteAnnotation = { ...base, id: "pn", kind: "note", at: { x: 0.3, y: 0.3 }, body: "x" };
+  check("纯图钉没有底纹矩形", annotationRects(pin).length === 0);
+
+  // 锚点取第一行右端，且不越界
+  const at = commentAnchorPoint([line, { x: 0.1, y: 0.3, w: 0.9, h: 0.03 }]);
+  check("锚点在第一行右端", near(at.x, 0.5) && near(at.y, 0.215), at);
+  const clamped = commentAnchorPoint([{ x: 0.9, y: 0.99, w: 0.2, h: 0.1 }]);
+  check("锚点不越出页面", clamped.x <= 0.998 && clamped.y <= 0.998, clamped);
+
+  // 高亮 → 便签：同 id、同 rects 数值、形态记住
+  const note = noteFromMark(hl, "这段有问题");
+  check("高亮升级后仍是同一条批注", note?.id === "hl", note?.id);
+  check("正文写入", commentText(note!) === "这段有问题", note?.body);
+  check("形态记录为高亮", markStyleOf(note!) === "highlight", note?.mark);
+  check(
+    "矩形数值相等但对象独立",
+    note !== null &&
+      note.rects !== undefined &&
+      note.rects[0] !== hl.rects[0] &&
+      near(note.rects[0].x, line.x) &&
+      near(note.rects[0].w, line.w),
+  );
+  check("下划线升级后记住下划线形态", markStyleOf(noteFromMark(ul, "x")!) === "underline");
+  check("框选升级后记住框选形态", markStyleOf(noteFromMark(rect, "x")!) === "box");
+  check("框选升级后矩形即那个框", near(noteFromMark(rect, "x")!.rects![0].w, 0.4));
+
+  // 已经是便签：只换正文，别的原样带回
+  const edited = noteFromMark(oldNote, "改过");
+  check("便签改正文不改 id / 位置 / 矩形", edited?.id === "nt" && edited.body === "改过" && edited.at.x === 0.5 && edited.rects?.length === 1);
+
+  check("箭头不能升级成便签", noteFromMark(arrow, "x") === null);
+  check("手绘不能升级成便签", noteFromMark(ink, "x") === null);
+
+  // 老笔记（0.7.0 及以前）没有 mark 字段：按高亮画，不能崩
+  check("缺 mark 字段按高亮处理", markStyleOf(oldNote) === "highlight");
+  check("普通高亮没有评论", commentText(hl) === null);
+
+  // 点在哪一行 → 气泡贴哪一行（叠了两层时取最上面那条）
+  const r1 = { x: 0, y: 0, w: 0.5, h: 0.1 };
+  const r2 = { x: 0, y: 0.05, w: 0.5, h: 0.1 };
+  check("命中被点中的那一行", rectAtPoint([r1], { x: 0.2, y: 0.02 }) === r1);
+  check("重叠时取最上层", rectAtPoint([r1, r2], { x: 0.2, y: 0.07 }) === r2);
+  check("点在空白处不命中", rectAtPoint([r1], { x: 0.6, y: 0.5 }) === null);
+}
+
+/**
  * [P] PDF 尾部垃圾（知网下载器的招牌）
  *
  * 这类文件的病在文件本身：`%%EOF` 之后被追加了 XML 元数据，
@@ -1295,6 +1416,7 @@ async function main(): Promise<void> {
   testAiProtocol();
   testNoteFormat();
   testCardLayout();
+  testCommentTarget();
   testPdfTrailer();
   testSettings();
   await testPointer();

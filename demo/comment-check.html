@@ -1,0 +1,90 @@
+<!doctype html>
+<!--
+  评论气泡验证页：用真实 CommentPopover + 真实 styles.css 渲染四种状态，
+  在 Edge 无头模式里截图核对（有评论 / 没评论 / 正在写 / 不可评论）。
+  不参与打包，仅本地排查用。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      :root {
+        --background-primary: #ffffff;
+        --background-secondary: #f2f3f5;
+        --background-modifier-border: #d8d8d8;
+        --background-modifier-hover: #ececec;
+        --text-normal: #1f1f1f;
+        --text-muted: #666;
+        --text-faint: #999;
+        --text-error: #c0392b;
+        --interactive-accent: #7c5cff;
+        --interactive-accent-hover: #6b4cf0;
+        --text-on-accent: #fff;
+        --font-ui-small: 13px;
+        --font-ui-smaller: 12px;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: "Microsoft YaHei", system-ui, sans-serif;
+        background: #f7f7f8;
+      }
+      .fake-page {
+        position: relative;
+        width: 620px;
+        margin: 20px auto;
+        height: 1240px;
+        background: #fff;
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+      }
+      .fake-line {
+        position: absolute;
+        left: 40px;
+        width: 520px;
+        height: 9px;
+        background: #e3e3e3;
+        border-radius: 2px;
+      }
+      .fake-hl {
+        position: absolute;
+        left: 40px;
+        width: 300px;
+        height: 13px;
+        background: rgba(245, 197, 66, 0.42);
+        border-radius: 2px;
+      }
+      .fake-ul {
+        position: absolute;
+        left: 40px;
+        width: 300px;
+        height: 2px;
+        background: #f06292;
+      }
+      .stage-label {
+        position: absolute;
+        right: 8px;
+        font-size: 11px;
+        color: #aaa;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="fake-page" id="page">
+      <div class="fake-line" style="top: 60px"></div>
+      <div class="fake-line" style="top: 78px"></div>
+
+      <div class="fake-hl" data-mark="a" style="top: 120px"></div>
+      <div class="fake-line" style="top: 172px"></div>
+
+      <div class="fake-hl" data-mark="b" style="top: 420px; width: 360px"></div>
+      <div class="fake-line" style="top: 272px"></div>
+
+      <div class="fake-hl" data-mark="c" style="top: 720px; width: 240px"></div>
+      <div class="fake-ul" data-mark="d" style="top: 1020px; width: 240px"></div>
+      <div class="fake-line" style="top: 380px"></div>
+    </div>
+    <script src="./comment-check.js"></script>
+  </body>
+</html>

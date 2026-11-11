@@ -853,6 +853,215 @@
   background: rgba(var(--color-red-rgb, 224, 36, 94), 0.12);
 }
 
+/* ------------------------- 点标记 → 写评论气泡 ------------------------- */
+
+.pdfa-comment-pop {
+  width: 272px;
+  max-width: calc(100vw - 24px);
+}
+
+.pdfa-comment-card {
+  display: flex;
+  flex-direction: column;
+  padding: 7px 8px 8px;
+  gap: 2px;
+}
+
+.pdfa-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  user-select: none;
+}
+
+.pdfa-comment-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.pdfa-comment-title {
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pdfa-comment-page {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdfa-comment-spacer {
+  flex: 1;
+}
+
+/* 头部的小图标按钮：不能复用 .pdfa-icon-btn（那条规则只在 .pdfa-shell 下生效） */
+.pdfa-comment-pop .pdfa-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pdfa-comment-pop .pdfa-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdfa-comment-pop .pdfa-icon-btn .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pdfa-comment-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  margin-top: 2px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pdfa-comment-add:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.pdfa-comment-add-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.pdfa-comment-add:hover .pdfa-comment-add-icon {
+  color: var(--interactive-accent);
+}
+
+.pdfa-comment-add-icon .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pdfa-comment-body {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: var(--font-ui-small);
+  line-height: 1.55;
+  /* 气泡里可以选文字复制，但不要带着页面的选中态 */
+  user-select: text;
+}
+
+.pdfa-comment-body.is-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Markdown 渲染出来的第一/最后一块不该再撑开额外留白 */
+.pdfa-comment-body > :first-child {
+  margin-top: 2px;
+}
+
+.pdfa-comment-body > :last-child {
+  margin-bottom: 2px;
+}
+
+.pdfa-comment-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  max-height: 220px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  resize: none;
+}
+
+.pdfa-comment-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.pdfa-comment-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.pdfa-comment-kbd {
+  margin-right: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.pdfa-comment-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.pdfa-comment-action:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdfa-comment-action.is-danger:hover {
+  color: var(--text-error);
+  background: rgba(var(--color-red-rgb, 224, 36, 94), 0.12);
+}
+
+.pdfa-comment-action-icon {
+  display: inline-flex;
+}
+
+.pdfa-comment-action-icon .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.pdfa-comment-hint {
+  padding: 2px 2px 0;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
 /* ------------------------------ 右键菜单 ------------------------------ */
 
 .pdfa-menu {

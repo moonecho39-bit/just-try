@@ -20,9 +20,11 @@ pdf-annotator/
 ├── demo/                  不启动 Obsidian 也能看效果（浏览器直接打开 index.html）
 │   ├── index.html
 │   ├── entry.ts           把真实组件挂到假 DOM 上
+│   ├── cards-check*.html  批注卡片排布核对页
+│   ├── comment-check*.html 评论气泡四种状态核对页
 │   └── obsidian-stub.ts   `obsidian` 模块的最小替身
 ├── test/
-│   ├── entry.ts           [A]~[J] 十组冒烟测试
+│   ├── entry.ts           [A]~[Q] 十七组冒烟测试
 │   ├── run.cjs            jsdom 宿主
 │   └── fixtures/sample.pdf
 └── src/
@@ -41,6 +43,7 @@ pdf-annotator/
     │   ├── palettes.ts        色组（马卡龙/莫兰迪/原生/自定义）
     │   ├── toolState.ts       工具状态机（当前工具 + 色槽 + 笔宽）
     │   ├── annotationStore.ts 内存草稿库（CRUD + 撤销栈 + removeSilently）
+    │   ├── commentTarget.ts   ★ 谁可评论 / 评论落在哪 / 标记→便签（纯函数）
     │   ├── geometry.ts        纯几何（框、点到线段、箭头头部、交叠率）
     │   ├── ink.ts             手绘采样 / Chaikin 平滑 / 轮廓带成径
     │   ├── pageLayer.ts       每页一个 SVG 绘制层（批注层 + 回链层 + 指针）
@@ -48,7 +51,8 @@ pdf-annotator/
     ├── ui/
     │   ├── selectionToolbar.ts 选区浮动工具栏（含“高亮并复制链接”）
     │   ├── colorPopover.ts     取色弹层
-    │   ├── noteEditor.ts       便签浮层编辑器
+    │   ├── noteEditor.ts       便签浮层编辑器（富文本 / 粘贴图片）
+    │   ├── commentPopover.ts   ★ 点标记就地写评论的气泡（看 / 写两态）
     │   ├── contextMenu.ts      批注右键菜单（复制链接 / 复制为 Callout）
     │   ├── backlinkPanel.ts    右侧反向链接面板（分组 / 过滤 / hover 联动）
     │   ├── linkDrag.ts         自有拖放（拖到 Markdown 编辑器插入链接）
@@ -62,7 +66,7 @@ pdf-annotator/
 npm install --registry=https://registry.npmmirror.com
 npm run dev      # watch 模式
 npm run build    # 类型检查 + 生产构建
-npm test         # jsdom 冒烟测试：[A]~[J] 十组，139 项断言
+npm test         # jsdom 冒烟测试：[A]~[Q] 十七组，300 项断言
 
 # 不启动 Obsidian 也能看绘制 / 回链 / 面板效果
 npx esbuild demo/entry.ts --bundle --format=iife \
@@ -585,13 +589,40 @@ SSE 解析的两个真实坑（都有单测）：**半包**（一个 chunk 把�
    ████████████  ← 高亮底纹
 ```
 
-三个入口，都通向同一件事：
+四个入口，都通向同一件事：
 
 | 入口 | 操作 |
 |---|---|
-| 选中文字后的浮动工具栏 | 点 **批注** 图标（`message-square`） |
-| 已高亮的文字上右键 | **添加批注…** |
+| **点一下已经画好的标记** | 就地弹出气泡 → **添加评论**（最常用，见下节） |
+| 选中文字后的浮动工具栏 | 点 **批注** 图标（`message-square`），打开富文本便签 |
+| 已高亮的文字上右键 | **添加评论…** / **编辑评论…** |
 | 卡片本身 | 标题栏的铅笔改、✕ 删、⌃ 折叠 |
+
+### 点一下标记就能写评论
+
+手势与 WPS / Zotero 一致：**先高亮（或下划线、框选）一段文字，再点这块标记，
+气泡里给出「添加评论」，写完回车就落盘**。
+
+```
+ ████████████  ← 你已经画好的高亮
+        ┌──────────────────────┐
+        │ ● 高亮  页 111     ↗ ✕ │
+        │ 这段样本量只有 63…      │
+        │ ✎ 编辑    🗑 删除       │
+        └──────────────────────┘
+```
+
+几个刻意的取舍：
+
+- **单击不是拖选**：自己在 `pointerdown` 记起点、`pointerup` 量位移（> 4px 算拖拽），
+  再看 `selection.isCollapsed`。拖选文字、三击选段都不会被误判成"点标记"。
+- **气泡锚在被点中的那一行**，不是跟着光标飘 —— 看着这段字写评论，视线不用来回找。
+- **评论就是便签**：写下去即 `noteFromMark()` 把这条标记升级成 `kind: "note"`（同 id），
+  正文落进伴生笔记的 Callout，右侧卡片、撤销、删除、回填全部复用原有链路。
+- **形态被记住**：从下划线升上来的仍画下划线、从框选升上来的仍画空心框
+  （`mark` 字段，只影响渲染，不进落盘格式）。
+- **箭头 / 手绘不给评论入口**：它们没有"一块可以圈住的文字"，硬落盘只能拿外接框凑数，
+  重新打开 PDF 时会退化成一个色块。气泡里会直接说明改用「矩形框」。
 
 ### 为什么卡片挂在滚动区，而不是页面里
 

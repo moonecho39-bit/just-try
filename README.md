@@ -127,8 +127,9 @@ PDF. Two symmetric, ordinary links — nothing proprietary.
 
 ### Visible annotation cards
 
-A highlight is easy to forget about. Select text and hit **annotate** (`message-square` in the
-selection toolbar) — or right-click an existing highlight → **添加批注…** — and the highlight turns
+A highlight is easy to forget about. Highlight, underline or box some text first, then **click the
+mark itself** — a popover opens in place with **添加评论** (add comment); or use **annotate**
+(`message-square` in the selection toolbar) for the full rich-text note. Either way the mark turns
 into a note with a card in the page margin, joined to the text by a dashed leader line:
 
 ```
@@ -141,6 +142,14 @@ into a note with a card in the page margin, joined to the text by a dashed leade
    ████████████  ← the highlighted line
 ```
 
+**Click-to-comment** works like WPS / Zotero: click a mark you already drew and the bubble offers
+*add comment*; type and press `Ctrl/⌘ + Enter`. The click is only treated as a click when the pointer
+moved less than 4px and nothing is selected — dragging to select text (or triple-click) never opens
+the bubble by accident, and the bubble anchors to the line you clicked rather than following the
+cursor. Arrows and freehand ink deliberately have no comment entry: they have no text block to anchor
+to, so persisting them would degrade to a bounding box on reload; the bubble says so and points at
+the rectangle tool instead.
+
 Cards live in an overlay attached to the **scroll container**, not the page: `.pdfa-page` uses
 `overflow: hidden` + `contain: paint`, which would clip anything drawn outside the page box. When
 neither margin is wide enough (narrow pane, heavy zoom) the card falls back inside the page and the
@@ -149,6 +158,8 @@ leader line is dropped — a line crossing the body text reads worse than no lin
 Under the hood it is still a single `NoteAnnotation` with an optional `rects` field: with `rects` it
 renders a highlight + card, without it you get the classic pin. Storage is unchanged, so no existing
 note needs migrating, and converting a highlight reuses the same id — one undo step, no orphan pin.
+Its `mark` field ("highlight" / "underline" / "box") remembers what the annotation looked like
+before it gained a comment, so an underline does not silently become a filled block.
 
 ### Works on tablets
 A pointer adapter normalises mouse / pen / touch into one sample type and adds what touch screens

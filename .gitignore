@@ -25,3 +25,5 @@ Thumbs.db
 
 # demo 验证页的打包产物（由 esbuild 现场生成）
 demo/cards-check.js
+demo/comment-check.js
+demo/_ta.html

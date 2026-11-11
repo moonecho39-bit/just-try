@@ -34,6 +34,8 @@ const GLYPHS: Record<string, string> = {
   "chevron-right": "›",
   "move-horizontal": "↔",
   "maximize": "⤢",
+  "message-square": "💬",
+  "message-square-plus": "💬✎",
   "undo-2": "↶",
   "redo-2": "↷",
 };
