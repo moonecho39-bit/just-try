@@ -184,6 +184,9 @@ export class PDFFileView extends ItemView {
 
   private titleEl!: HTMLElement;
   private zoomLabelEl!: HTMLElement;
+  /** 页码输入框与「/ 总页」标签（工具栏组 1） */
+  private pageInputEl!: HTMLInputElement;
+  private pageTotalEl!: HTMLElement;
   private scrollerEl!: HTMLElement;
   private pagesEl!: HTMLElement;
   private toolButtons = new Map<ToolId, HTMLElement>();
@@ -272,13 +275,13 @@ export class PDFFileView extends ItemView {
         const next = { ...cur, body, updatedAt: Date.now() };
         this.store.update(next);
         // 正文一变就立刻写回伴生笔记：便签是"随手记"，不该等到关闭视图才落盘
-        void this.persistNote(next);
+        this.bg("保存便签", this.persistNote(next));
       },
       onDelete: (anno) => {
         this.store.remove(anno.id);
-        void this.deleteNoteBlock(anno.id);
+        this.bg("删除便签", this.deleteNoteBlock(anno.id));
       },
-      onOpenInNote: (anno) => void this.openNoteBlock(anno),
+      onOpenInNote: (anno) => this.bg("打开便签", this.openNoteBlock(anno)),
     });
   }
 
@@ -315,7 +318,7 @@ export class PDFFileView extends ItemView {
     this.pagesEl = this.scrollerEl.createDiv({ cls: "pdfa-pages" });
 
     this.backlinkPanel = new BacklinkPanel({
-      onActivate: (entry) => void this.jumpToNote(entry),
+      onActivate: (entry) => this.bg("跳转到笔记", this.jumpToNote(entry)),
       onHover: (entry) => this.setHoverBacklink(entry ? { page: entry.page, key: entry.key } : null),
       onFilterChange: () => undefined,
       onClose: () => this.setPanelOpen(false),
@@ -409,25 +412,61 @@ export class PDFFileView extends ItemView {
    * ---------------------------------------------------------------- */
 
   private buildToolbar(root: HTMLElement): void {
+    /*
+     * 单行固定工具栏。
+     *
+     * 布局取舍：原来是两行（标题+缩放 / 工具组），占了 78px 垂直空间，
+     * 而 PDF 视图最缺的就是纵向空间。现在压成一行，用 `.pdfa-sep` 分组，
+     * 面板过窄时整条横向滚动，而不是把按钮压扁或换行把正文往下挤。
+     *
+     * 分组顺序按使用频率排：翻页 → 缩放 → 批注工具 → 撤销 → 面板/AI。
+     */
     const bar = root.createDiv({ cls: "pdfa-toolbar" });
+
+    /* 文件名：最长的可牺牲项，窄面板下由样式隐藏 */
     this.titleEl = bar.createDiv({ cls: "pdfa-title", text: "PDF 批注" });
 
-    const zoomBox = bar.createDiv({ cls: "pdfa-zoom" });
-    const zoomOut = zoomBox.createEl("button", { cls: "pdfa-icon-btn", attr: { "aria-label": "缩小" } });
-    setIcon(zoomOut, "minus");
-    zoomOut.onclick = () => void this.setScale(this.scale / SCALE_STEP);
+    /* ── 组 1：页码导航 ─────────────────────────────────────────────
+     * 之前只有滚动一条路。读几十页的文献时"跳到第 87 页"是刚需，
+     * 而且页码本身就是引用链接的坐标，能直接跳才谈得上核对。
+     */
+    const nav = bar.createDiv({ cls: "pdfa-group" });
+    this.iconButton(nav, "chevron-left", "上一页", () => this.stepPage(-1));
+    this.pageInputEl = nav.createEl("input", {
+      cls: "pdfa-page-input",
+      attr: { type: "text", inputmode: "numeric", "aria-label": "当前页码" },
+    });
+    this.pageInputEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        this.goToPage(Number.parseInt(this.pageInputEl.value, 10));
+        this.pageInputEl.blur();
+      } else if (ev.key === "Escape") {
+        // 放弃输入：还原成当前真实页码，别把半截数字留在框里
+        this.syncPageUi();
+        this.pageInputEl.blur();
+      }
+    });
+    this.pageInputEl.addEventListener("blur", () => this.syncPageUi());
+    this.pageTotalEl = nav.createDiv({ cls: "pdfa-page-total", text: "/ 0" });
+    this.iconButton(nav, "chevron-right", "下一页", () => this.stepPage(1));
 
-    this.zoomLabelEl = zoomBox.createDiv({ cls: "pdfa-zoom-label", text: "100%" });
+    bar.createDiv({ cls: "pdfa-sep" });
+
+    /* ── 组 2：缩放 ───────────────────────────────────────────────── */
+    const zoom = bar.createDiv({ cls: "pdfa-group" });
+    this.iconButton(zoom, "minus", "缩小", () => void this.setScale(this.scale / SCALE_STEP));
+    this.zoomLabelEl = zoom.createDiv({ cls: "pdfa-zoom-label", text: "100%" });
+    this.zoomLabelEl.setAttribute("aria-label", "恢复到 100%");
     this.zoomLabelEl.onclick = () => void this.setScale(1);
+    this.iconButton(zoom, "plus", "放大", () => void this.setScale(this.scale * SCALE_STEP));
+    this.iconButton(zoom, "move-horizontal", "适应宽度", () => void this.fitTo("width"));
+    this.iconButton(zoom, "maximize", "适应整页", () => void this.fitTo("page"));
 
-    const zoomIn = zoomBox.createEl("button", { cls: "pdfa-icon-btn", attr: { "aria-label": "放大" } });
-    setIcon(zoomIn, "plus");
-    zoomIn.onclick = () => void this.setScale(this.scale * SCALE_STEP);
+    bar.createDiv({ cls: "pdfa-sep" });
 
-    /* --- 第二行：工具组 --- */
-    const row = root.createDiv({ cls: "pdfa-toolrow" });
-    const tools = row.createDiv({ cls: "pdfa-tools" });
-
+    /* ── 组 3：批注工具 ───────────────────────────────────────────── */
+    const tools = bar.createDiv({ cls: "pdfa-group pdfa-tools" });
     for (const id of TOOL_ORDER) {
       const meta = TOOL_META[id];
       const btn = tools.createEl("button", {
@@ -439,9 +478,8 @@ export class PDFFileView extends ItemView {
       this.toolButtons.set(id, btn);
     }
 
-    row.createDiv({ cls: "pdfa-toolrow-divider" });
-
-    this.colorBtnEl = row.createEl("button", {
+    /* 颜色紧随工具组：换色是画之前的最后一个动作，放一起少一次视线跳转 */
+    this.colorBtnEl = tools.createEl("button", {
       cls: "pdfa-icon-btn pdfa-color-btn",
       attr: { type: "button", title: "当前颜色 / 色组" },
     });
@@ -451,20 +489,20 @@ export class PDFFileView extends ItemView {
       this.colorPopover.open(this.colorBtnEl, surface);
     };
 
-    row.createDiv({ cls: "pdfa-toolrow-divider" });
+    bar.createDiv({ cls: "pdfa-sep" });
 
-    this.undoBtnEl = row.createEl("button", { cls: "pdfa-icon-btn", attr: { type: "button", title: "撤销 (Ctrl+Z)" } });
-    setIcon(this.undoBtnEl, "undo-2");
-    this.undoBtnEl.onclick = () => this.store.undo();
+    /* ── 组 4：撤销 / 重做 ────────────────────────────────────────── */
+    const hist = bar.createDiv({ cls: "pdfa-group" });
+    this.undoBtnEl = this.iconButton(hist, "undo-2", "撤销 (Ctrl+Z)", () => this.store.undo());
+    this.redoBtnEl = this.iconButton(hist, "redo-2", "重做 (Ctrl+Shift+Z)", () => this.store.redo());
 
-    this.redoBtnEl = row.createEl("button", { cls: "pdfa-icon-btn", attr: { type: "button", title: "重做 (Ctrl+Shift+Z)" } });
-    setIcon(this.redoBtnEl, "redo-2");
-    this.redoBtnEl.onclick = () => this.store.redo();
+    bar.createDiv({ cls: "pdfa-sep" });
 
-    row.createDiv({ cls: "pdfa-toolrow-divider" });
+    /* ── 组 5：面板与 AI ──────────────────────────────────────────── */
+    const side = bar.createDiv({ cls: "pdfa-group" });
 
     /* 反向链接面板开关：带一个数量角标，否则用户不知道这篇 PDF 有没有回链 */
-    this.backlinkBtnEl = row.createEl("button", {
+    this.backlinkBtnEl = side.createEl("button", {
       cls: "pdfa-icon-btn pdfa-backlink-btn",
       attr: { type: "button", title: "反向链接：笔记里指向这篇 PDF 的高亮" },
     });
@@ -476,15 +514,125 @@ export class PDFFileView extends ItemView {
      * AI 伴读入口。放在顶部而不是只放浮动工具栏：
      * 移动端拖选文字后浮动工具栏可能被选区挡住，顶部按钮是稳定入口。
      */
-    this.aiBtnEl = row.createEl("button", {
+    this.aiBtnEl = side.createEl("button", {
       cls: "pdfa-icon-btn pdfa-ai-btn",
       attr: { type: "button", title: "AI 伴读：翻译 / 解释 / 总结（先选中文字）" },
     });
     setIcon(this.aiBtnEl, "sparkles");
     this.aiBtnEl.onclick = () => this.showAiMenu(this.aiBtnEl);
 
-    const hint = row.createDiv({ cls: "pdfa-toolrow-hint" });
+    const hint = bar.createDiv({ cls: "pdfa-toolbar-hint" });
     hint.setText("Esc 退出工具");
+  }
+
+  /** 工具栏里的图标按钮：统一 aria / title / 尺寸，省掉每处重复的 createEl */
+  private iconButton(
+    parent: HTMLElement,
+    icon: string,
+    label: string,
+    onClick: () => void,
+  ): HTMLButtonElement {
+    const btn = parent.createEl("button", {
+      cls: "pdfa-icon-btn",
+      attr: { type: "button", "aria-label": label, title: label },
+    });
+    setIcon(btn, icon);
+    btn.onclick = onClick;
+    return btn;
+  }
+
+  /**
+   * 即发即弃的异步调用统一入口。
+   *
+   * 插件里有几十处"点击 → 干活"的回调无法 await（事件回调就是同步签名），
+   * 以前一律写成 `void this.xxx()`。这些 Promise 一旦拒绝，只会变成控制台里
+   * 一行 UnhandledRejection，用户看到的却是"点了没反应"——最难查的一类故障。
+   * 统一走 bg()：至少留下一条带上下文的日志和一次可见提示。
+   *
+   * @param label 出问题时告诉用户"哪一步失败了"（例如「保存便签」）
+   */
+  private bg(label: string, task: Promise<unknown>): void {
+    void task.catch((err) => {
+      console.error(`[pdf-annotator] ${label}失败`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      new Notice(`${label}失败：${msg}`, 5000);
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 页码导航
+   * ---------------------------------------------------------------- */
+  private stepPage(delta: number): void {
+    this.goToPage((this.currentPageNumber() ?? 1) + delta);
+  }
+
+  /**
+   * 跳到第 n 页。
+   *
+   * 用 `root.offsetTop` 直接写 scrollTop，而不是 `scrollIntoView`：
+   * 后者会连带把外层容器一起滚（Obsidian 的 leaf 也可能跟着动），
+   * 而且对 sticky 工具栏的处理各家不一，容易把工具栏滚出视野。
+   * 页码越界一律夹紧，非法输入（NaN / 空）回落到当前页，不弹窗。
+   */
+  private goToPage(page: number): void {
+    const total = this.pages.size;
+    if (total === 0) return;
+
+    const fallback = this.currentPageNumber() ?? 1;
+    const wanted = Number.isFinite(page) ? Math.round(page) : fallback;
+    const n = Math.min(total, Math.max(1, wanted));
+
+    const el = this.pages.get(n);
+    if (!el) return;
+
+    this.scrollerEl.scrollTop = el.root.offsetTop;
+    this.syncPageUi(n);
+    this.refreshVisible();
+  }
+
+  /**
+   * 把页码框与总页数刷成当前状态。
+   *
+   * 两个细节：
+   *  · 用 `document.activeElement` 判断用户是否正在输入，正在输入时**绝不覆盖**，
+   *    否则一边打字一边被滚动事件改字，根本没法输入两位数；
+   *  · 没有文档时把输入框置灰，而不是留一个能打字却永远跳不动的框。
+   */
+  private syncPageUi(explicit?: number): void {
+    const total = this.pages.size;
+    this.pageTotalEl?.setText(`/ ${total}`);
+
+    if (total === 0) {
+      this.pageInputEl?.setAttribute("disabled", "true");
+      if (this.pageInputEl) this.pageInputEl.value = "";
+      return;
+    }
+    this.pageInputEl?.removeAttribute("disabled");
+
+    const current = explicit ?? this.currentPageNumber() ?? 1;
+    if (this.pageInputEl && document.activeElement !== this.pageInputEl) {
+      this.pageInputEl.value = String(current);
+    }
+  }
+
+  /**
+   * 适应宽度 / 适应整页。
+   *
+   * 用第 1 页的基准尺寸算比例：文献的页面尺寸基本一致，取首页省掉一次遍历；
+   * "适应整页"取宽高比例的较小值，保证整页都能看见。
+   */
+  private async fitTo(mode: "width" | "page"): Promise<void> {
+    const probe = this.pages.get(1)?.geometry;
+    if (!probe) return;
+
+    // 左右各留 16px，避免页面贴边；上下留出滚动区 padding
+    const availW = Math.max(120, this.scrollerEl.clientWidth - 32);
+    const availH = Math.max(120, this.scrollerEl.clientHeight - 40);
+    const byWidth = availW / probe.baseWidth;
+    const scale = mode === "width" ? byWidth : Math.min(byWidth, availH / probe.baseHeight);
+
+    await this.setScale(scale);
+    this.syncPageUi();
   }
 
   /** 工具切换后同步：按钮高亮、光标、色点、绘制层的指针开关 */
@@ -535,7 +683,7 @@ export class PDFFileView extends ItemView {
         // 如果只复制不高亮，用户会以为刚才那一下没生效；
         // 而高亮之后链接粘进笔记，重扫时草稿会被回链顶替（视觉上无缝）。
         const created = this.applyTextMark("highlight", null, true);
-        void this.copyAnnotationLinks(created);
+        this.bg("复制链接", this.copyAnnotationLinks(created));
         return;
       }
 
@@ -664,6 +812,7 @@ export class PDFFileView extends ItemView {
     if (gen !== this.generation) return;
 
     this.scrollerEl.scrollTop = 0;
+    this.syncPageUi(1);
     this.refreshVisible();
 
     // 回链扫描与页面渲染并行：只取文本，不用等位图
@@ -755,11 +904,11 @@ export class PDFFileView extends ItemView {
         onCreate: (anno) => this.store.add(anno),
         onPlaceNote: (at) => this.createNote(n, at),
         onOpenNote: (anno) => this.openNoteEditor(anno),
-        onOpenNoteAnchor: (anno) => void this.openNoteBlock(anno),
+        onOpenNoteAnchor: (anno) => this.bg("打开便签", this.openNoteBlock(anno)),
         onContextMenu: (anno, ev) => this.showAnnotationMenu(anno, ev),
-        onBacklinkActivate: (mark) => void this.activateBacklink(mark),
+        onBacklinkActivate: (mark) => this.bg("跳转回链", this.activateBacklink(mark)),
         onBacklinkHover: (mark, ev) => this.onPageBacklinkHover(mark, ev),
-        onDragStart: (anno, ev) => void this.beginLinkDrag(anno, ev),
+        onDragStart: (anno, ev) => this.bg("拖拽链接", this.beginLinkDrag(anno, ev)),
       });
 
       this.pages.set(n, { root, canvas, textLayer, layer, geometry, state: "idle" });
@@ -829,6 +978,8 @@ export class PDFFileView extends ItemView {
     this.rafId = requestAnimationFrame(() => {
       this.rafId = 0;
       this.refreshVisible();
+      // 页码框跟着滚动走（内部会跳过"用户正在输入"的情况）
+      this.syncPageUi();
       // 「仅本页」过滤依赖当前页，滚动时同步一下（面板没开就跳过）
       if (this.panelOpen) this.backlinkPanel?.setCurrentPage(this.currentPageNumber());
     });
@@ -1177,7 +1328,7 @@ export class PDFFileView extends ItemView {
     };
     this.store.add(anno);
     // 先落盘（写进伴生笔记）再开编辑器：用户如果直接关掉浮层，这条便签也不会丢
-    void this.persistNote(anno);
+    this.bg("保存便签", this.persistNote(anno));
     // 等一帧再开编辑器：让图钉先渲染出来，也避开当前 pointerdown 的事件流
     window.requestAnimationFrame(() => this.openNoteEditor(anno));
   }
@@ -1203,10 +1354,10 @@ export class PDFFileView extends ItemView {
     const items: MenuItem[] = [];
     if (anno.kind === "note") {
       items.push({ label: "编辑便签", icon: "pencil", onClick: () => this.openNoteEditor(anno) });
-      items.push({ label: "在笔记中打开这一条", icon: "external-link", onClick: () => void this.openNoteBlock(anno) });
+      items.push({ label: "在笔记中打开这一条", icon: "external-link", onClick: () => this.bg("打开便签", this.openNoteBlock(anno)) });
     }
-    items.push({ label: "复制链接", icon: "link", onClick: () => void this.copyAnnotationLink(anno, false) });
-    items.push({ label: "复制为 Callout", icon: "quote", onClick: () => void this.copyAnnotationLink(anno, true) });
+    items.push({ label: "复制链接", icon: "link", onClick: () => this.bg("复制链接", this.copyAnnotationLink(anno, false)) });
+    items.push({ label: "复制为 Callout", icon: "quote", onClick: () => this.bg("复制 Callout", this.copyAnnotationLink(anno, true)) });
 
     /*
      * AI 三项平铺而不是二级菜单：
@@ -1218,7 +1369,7 @@ export class PDFFileView extends ItemView {
         items.push({
           label: `AI ${task.label}`,
           icon: task.icon,
-          onClick: () => void this.runAiTaskForAnnotation(task.id, anno),
+          onClick: () => this.bg("AI 解读", this.runAiTaskForAnnotation(task.id, anno)),
         });
       }
     }
@@ -1231,7 +1382,7 @@ export class PDFFileView extends ItemView {
         this.store.remove(anno.id);
         if (anno.kind === "note") {
           this.noteEditor.close(false);
-          void this.deleteNoteBlock(anno.id);
+          this.bg("删除便签", this.deleteNoteBlock(anno.id));
         }
       },
     });
@@ -1678,7 +1829,7 @@ export class PDFFileView extends ItemView {
     const items: MenuItem[] = AI_TASKS.map((t) => ({
       label: `${t.label}选中的文字`,
       icon: t.icon,
-      onClick: () => void this.runAiTask(t.id),
+      onClick: () => this.bg("AI 请求", this.runAiTask(t.id)),
     }));
     // 没有选区时也给提示：点下去会退化成"按当前页提问"
     this.contextMenu.show(items, r.left + r.width / 2, r.bottom + 6);

@@ -96,6 +96,14 @@ A pointer adapter normalises mouse / pen / touch into one sample type and adds w
 lack: long-press → context menu, double-tap → backlink jump, multi-finger → abort the gesture (so
 pinch-zoom doesn't draw a stray line).
 
+### Fixed single-row toolbar
+One row pinned to the top of the view: page navigation (`‹ [n] / total ›`, jump on Enter, clamped at
+both ends), zoom (out / 100% / in / fit-width / fit-page), the annotation tool set with its colour
+swatch, undo / redo, the backlink panel toggle with its count badge, and the AI menu. The row scrolls
+horizontally instead of wrapping when the pane is narrow, and the file name is the first thing to go.
+Page jumps are applied via `scrollTop`, not `scrollIntoView`, so the toolbar can never be scrolled
+out of the viewport.
+
 ---
 
 ## Comparison

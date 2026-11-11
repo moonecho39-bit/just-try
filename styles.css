@@ -10,8 +10,8 @@
 .pdf-annotator-view {
   --pdfa-page-gap: 14px;
   --pdfa-page-bg: #ffffff;
-  --pdfa-toolbar-h: 40px;
-  --pdfa-toolrow-h: 38px;
+  /* 单行工具栏：40px 装得下 26~28px 的按钮，再高就白占正文空间 */
+  --pdfa-toolbar-h: 42px;
 
   display: flex;
   flex-direction: column;
@@ -21,23 +21,57 @@
   overflow: hidden;
 }
 
-/* ------------------------------ 工具栏 ------------------------------ */
+/* --------------------------- 固定工具栏（单行） --------------------------- */
 
+/*
+ * 固定在视图顶部的一层。工具栏是滚动区的兄弟节点，本来就不会被滚走；
+ * 这里仍然写 sticky，是为了将来把它挪进滚动容器时行为不变。
+ */
 .pdf-annotator-view .pdfa-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 var(--pdfa-toolbar-h);
   height: var(--pdfa-toolbar-h);
-  padding: 0 10px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   user-select: none;
+  /* 面板很窄时整条横向滚动，而不是换行把正文挤下去 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.pdf-annotator-view .pdfa-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 一组相关按钮：内部收紧间距，组间靠 .pdfa-sep 分隔 */
+.pdf-annotator-view .pdfa-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.pdf-annotator-view .pdfa-sep {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 18px;
+  background: var(--background-modifier-border);
 }
 
 .pdf-annotator-view .pdfa-title {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 200px;
+  margin-right: 2px;
   font-size: var(--font-ui-small);
   font-weight: 600;
   color: var(--text-normal);
@@ -46,15 +80,42 @@
   white-space: nowrap;
 }
 
-.pdf-annotator-view .pdfa-zoom {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+/* ------------------------------ 页码导航 ------------------------------ */
+
+.pdf-annotator-view .pdfa-page-input {
+  width: 40px;
+  height: 24px;
+  padding: 0 2px;
+  text-align: center;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  box-shadow: none;
 }
 
+.pdf-annotator-view .pdfa-page-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.pdf-annotator-view .pdfa-page-input:disabled {
+  opacity: 0.5;
+}
+
+.pdf-annotator-view .pdfa-page-total {
+  padding: 0 4px 0 3px;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* -------------------------------- 缩放 -------------------------------- */
+
 .pdf-annotator-view .pdfa-zoom-label {
-  min-width: 52px;
+  min-width: 46px;
   text-align: center;
   font-size: var(--font-ui-smaller);
   font-variant-numeric: tabular-nums;
@@ -68,6 +129,8 @@
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+
+/* ------------------------------- 按钮基础 ------------------------------- */
 
 .pdf-annotator-view .pdfa-icon-btn {
   display: inline-flex;
@@ -99,31 +162,11 @@
   pointer-events: none;
 }
 
-/* --------------------------- 工具行（第二行）--------------------------- */
-
-.pdf-annotator-view .pdfa-toolrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 var(--pdfa-toolrow-h);
-  height: var(--pdfa-toolrow-h);
-  padding: 0 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  user-select: none;
-}
+/* ------------------------------ 批注工具组 ------------------------------ */
 
 .pdf-annotator-view .pdfa-tools {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  /* 面板很窄时横向滚动，而不是把按钮压扁 */
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.pdf-annotator-view .pdfa-tools::-webkit-scrollbar {
-  display: none;
+  /* 工具组不单独滚动：整条工具栏统一滚，避免滚动条套滚动条 */
+  overflow: visible;
 }
 
 .pdf-annotator-view .pdfa-tool-btn {
@@ -141,13 +184,6 @@
   color: var(--text-on-accent);
 }
 
-.pdf-annotator-view .pdfa-toolrow-divider {
-  flex: 0 0 1px;
-  width: 1px;
-  height: 18px;
-  background: var(--background-modifier-border);
-}
-
 .pdf-annotator-view .pdfa-color-btn {
   width: 30px;
 }
@@ -161,12 +197,25 @@
   background: #ffe066;
 }
 
-.pdf-annotator-view .pdfa-toolrow-hint {
+.pdf-annotator-view .pdfa-toolbar-hint {
   margin-left: auto;
   padding-right: 2px;
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
   white-space: nowrap;
+}
+
+/* 分屏 / 手机：先收提示，再收文件名，按钮始终可用 */
+@media (max-width: 820px) {
+  .pdf-annotator-view .pdfa-toolbar-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .pdf-annotator-view .pdfa-title {
+    display: none;
+  }
 }
 
 /* ------------------------------ 滚动区 ------------------------------ */
