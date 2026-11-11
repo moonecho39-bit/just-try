@@ -1912,6 +1912,7 @@ body.pdfa-linking-drag {
   line-height: 1.55;
   /* 卡片里的 Markdown：首尾段落不要各撑一行空 */
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .pdfa-shell .pdfa-card-body > :first-child {
@@ -1946,9 +1947,21 @@ body.pdfa-linking-drag {
   }
 }
 
-/* 窄屏：卡片缩窄，避免把正文挤没 */
-@media (max-width: 720px) {
-  .pdfa-shell .pdfa-card {
-    max-width: 200px;
-  }
+/*
+ * 窄卡：页面两侧只剩 150~190px 时的紧凑排版。
+ * 宁可把字号和内边距收一点，也要让卡片待在空白里 —— 压住正文比窄更难受。
+ */
+.pdfa-shell .pdfa-card.is-narrow .pdfa-card-head {
+  gap: 4px;
+  padding: 3px 3px 3px 6px;
+}
+
+.pdfa-shell .pdfa-card.is-narrow .pdfa-card-btn {
+  width: 18px;
+  height: 18px;
+}
+
+.pdfa-shell .pdfa-card.is-narrow .pdfa-card-body {
+  padding: 6px 7px 7px;
+  line-height: 1.45;
 }

@@ -89,7 +89,7 @@ import {
 import { attachPointer } from "../src/ui/pointer";
 import { applyTransform } from "../src/link/textIndex";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "../src/ai/settings";
-import { chooseLane, packCards } from "../src/annot/cardLayout";
+import { CARD_MAX_W, chooseLane, packCards } from "../src/annot/cardLayout";
 import {
   lastEofEnd,
   repairedCopyPath,
@@ -1053,25 +1053,53 @@ function testCardLayout(): void {
   ]);
   check("零高度仍保持间隔", zero[1].top >= zero[0].top + 10, zero);
 
-  // 选道：右侧空白够 → 放右边，且紧贴页边 + gap
-  const right = chooseLane({ pageLeft: 100, pageRight: 900, viewWidth: 1300, cardWidth: 236 });
-  check("右侧有空间走右侧", right.side === "right" && right.left === 912, right);
+  // 选道：右侧空白够 → 放右边，且紧贴页边 + gap，宽度取上限
+  const right = chooseLane({ pageLeft: 100, pageRight: 900, viewWidth: 1300 });
+  check(
+    "右侧有空间走右侧",
+    right.side === "right" && right.left === 912 && right.width === CARD_MAX_W,
+    right,
+  );
 
   // 右侧不够（窗口窄），左侧够 → 走左侧，且右边缘与页边留 gap
-  const left = chooseLane({ pageLeft: 400, pageRight: 1200, viewWidth: 1300, cardWidth: 236 });
+  const left = chooseLane({ pageLeft: 400, pageRight: 1200, viewWidth: 1300 });
   check(
     "右侧不够改走左侧",
-    left.side === "left" && near(left.left + 236, 400 - 12, 1e-6),
+    left.side === "left" && near(left.left + left.width, 400 - 12, 1e-6),
     left,
   );
 
-  // 两侧都不够（放大到很大）→ 压回内侧，且不能跑出左边界
-  const inside = chooseLane({ pageLeft: 20, pageRight: 1280, viewWidth: 1300, cardWidth: 236 });
+  /*
+   * ★ 0.8.1 的真实现场：1536px 窗口、页面两侧只剩 209 / 201px。
+   * 旧实现一律按 236px 判"放不下"，于是退回页面内侧压住正文。
+   * 新实现应该：选右侧、宽度收窄到 209，稳稳待在空白里。
+   */
+  const narrowGutter = chooseLane({ pageLeft: 212, pageRight: 1010, viewWidth: 1231 });
+  check(
+    "边距只有 203px 时收窄卡片待在右侧空白",
+    narrowGutter.side === "right" &&
+      near(narrowGutter.width, 203, 1e-6) &&
+      near(narrowGutter.left, 1022, 1e-6) &&
+      narrowGutter.left >= 1010,
+    narrowGutter,
+  );
+  check(
+    "收窄后不出右边界",
+    narrowGutter.left + narrowGutter.width <= 1231,
+    narrowGutter,
+  );
+
+  // 两侧都不够（放大到很大）→ 压回内侧，且不能跑出左右边界
+  const inside = chooseLane({ pageLeft: 20, pageRight: 1280, viewWidth: 1300 });
   check(
     "两侧都不够时压回内侧且不出界",
-    inside.side === "inside" && inside.left >= 0 && inside.left + 236 <= 1300,
+    inside.side === "inside" && inside.left >= 0 && inside.left + inside.width <= 1300,
     inside,
   );
+
+  // 下限保护：边距比 CARD_MIN_W 还窄时判为放不下，而不是给一张 100px 的碎卡片
+  const tooNarrow = chooseLane({ pageLeft: 60, pageRight: 1100, viewWidth: 1160 });
+  check("边距小于下限判定为放不下", tooNarrow.side === "inside", tooNarrow);
 }
 
 /**

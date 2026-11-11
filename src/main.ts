@@ -176,6 +176,19 @@ export default class PdfAnnotatorPlugin extends Plugin {
     });
 
     /*
+     * 命令：关掉侧栏里误开的 PDF 标签
+     *
+     * 有些版本的侧栏标签条把关闭 × 压在了窗口按钮下面（看起来"关不了"），
+     * 而侧栏里多一个 PDF 标签会把文件浏览器顶到后台 —— 图标就"跑到上面去了"。
+     * 给一个明确的出口，比让用户去猜右键菜单可靠。
+     */
+    this.addCommand({
+      id: "close-sidebar-pdf-tabs",
+      name: "关掉侧栏里误开的 PDF 标签",
+      callback: () => this.closeSidebarPdfLeaves(false),
+    });
+
+    /*
      * ★ 拦截 Markdown 里的 PDF 链接点击
      *
      * 必须在**捕获阶段**：Obsidian 自己的 click 处理挂在编辑器/预览的冒泡链上，
@@ -223,6 +236,14 @@ export default class PdfAnnotatorPlugin extends Plugin {
       this.registerEvent(this.app.workspace.on("file-open", (file) => this.maybeRedirectPdf(file)));
     }
 
+    /*
+     * 开机自愈：清理"侧栏里重复打开的同一份 PDF"。
+     *
+     * 只清重复项 —— 用户真的想把某个 PDF 钉在侧栏里是合理需求，
+     * 那种情况主区域没有同一个文件，这里不会动它。
+     */
+    this.app.workspace.onLayoutReady(() => this.closeSidebarPdfLeaves(true));
+
     // 一行日志：出问题时让用户能在控制台（Ctrl+Shift+I）确认到底加载了没有
     console.info(`[PDF View] v${this.manifest.version} loaded · vault=${this.app.vault.getName()}`);
   }
@@ -242,7 +263,16 @@ export default class PdfAnnotatorPlugin extends Plugin {
     if (!file || !(file instanceof TFile) || file.extension !== "pdf") return;
     if (Date.now() < this.redirectUntil) return;
 
-    const leaf = this.app.workspace.activeLeaf ?? this.app.workspace.getMostRecentLeaf?.() ?? null;
+    /*
+     * 找"真正在显示这个 PDF 的那个 leaf"，而不是 activeLeaf。
+     *
+     * 0.8.0 的写法是拿 activeLeaf 直接 setViewState，结果踩了两个坑：
+     *   ① 用户点文件列表时焦点在侧栏，activeLeaf 是侧栏的叶子 ——
+     *      PDF 被塞进侧栏，文件浏览器被顶到后台标签（"文件夹图标跑上面去了"）；
+     *   ② 侧栏里堆出关不掉的 PDF 标签（侧栏标签条的 × 常被窗口按钮压住）。
+     * 现在只认主区域里正在显示该文件的 leaf；找不到就新开一个主区域标签。
+     */
+    const leaf = this.findPdfLeafFor(file.path) ?? this.mainAreaLeaf();
     if (!leaf) return;
     // 已经是我们的视图（或用户手动切过来的），不动
     if (leaf.view.getViewType() === PDF_VIEW_TYPE) return;
@@ -252,6 +282,81 @@ export default class PdfAnnotatorPlugin extends Plugin {
       console.error("[PDF View] 切换到批注视图失败", err);
       new Notice("切换到批注视图失败，已保留原生查看器。详情见控制台（Ctrl+Shift+I）。");
     });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 侧栏保护
+   * ------------------------------------------------------------------ */
+
+  /** 这个 leaf 是不是待在左右侧栏里（而不是主编辑区） */
+  private isInSidebar(leaf: WorkspaceLeaf): boolean {
+    const root = (leaf as unknown as { getRoot?: () => unknown }).getRoot?.();
+    if (!root) return false;
+    const ws = this.app.workspace;
+    return root === ws.leftSplit || root === ws.rightSplit;
+  }
+
+  /** leaf 当前显示的文件路径（拿不到就是空串） */
+  private filePathOf(leaf: WorkspaceLeaf): string {
+    const state = leaf.getViewState().state as { file?: unknown } | null;
+    return typeof state?.file === "string" ? state.file : "";
+  }
+
+  /** 主区域里正在显示这个 PDF 的 leaf（侧栏一律不算） */
+  private findPdfLeafFor(path: string): WorkspaceLeaf | null {
+    for (const type of ["pdf", PDF_VIEW_TYPE]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        if (this.isInSidebar(leaf)) continue;
+        if (this.filePathOf(leaf) === path) return leaf;
+      }
+    }
+    return null;
+  }
+
+  /** 打开 PDF 时该落在哪个 leaf：焦点在侧栏上就另开一个主区域标签 */
+  private mainAreaLeaf(): WorkspaceLeaf | null {
+    const active = this.app.workspace.activeLeaf;
+    if (active && !this.isInSidebar(active)) return active;
+    return this.app.workspace.getLeaf("tab");
+  }
+
+  /**
+   * 关掉侧栏里的 PDF 标签。
+   *
+   * @param onlyDuplicates true = 只关"主区域已经打开了同一份"的（开机自愈用，
+   *   免得把用户特意钉在侧栏里的那份也关掉）；false = 全关（命令面板手动触发）。
+   */
+  private closeSidebarPdfLeaves(onlyDuplicates: boolean): void {
+    const ws = this.app.workspace;
+    const types = ["pdf", PDF_VIEW_TYPE];
+
+    // 先记下主区域有哪些 PDF —— 迭代中 detach 会改动工作区，必须先取快照
+    const inMain = new Set<string>();
+    for (const type of types) {
+      for (const leaf of ws.getLeavesOfType(type)) {
+        if (this.isInSidebar(leaf)) continue;
+        const path = this.filePathOf(leaf);
+        if (path) inMain.add(path);
+      }
+    }
+
+    const doomed: WorkspaceLeaf[] = [];
+    for (const type of types) {
+      for (const leaf of ws.getLeavesOfType(type)) {
+        if (!this.isInSidebar(leaf)) continue;
+        const path = this.filePathOf(leaf);
+        if (onlyDuplicates && (!path || !inMain.has(path))) continue;
+        doomed.push(leaf);
+      }
+    }
+
+    for (const leaf of doomed) leaf.detach();
+
+    if (doomed.length > 0) {
+      new Notice(`已关掉侧栏里 ${doomed.length} 个 PDF 标签（文件本身没动）`, 4000);
+    } else if (!onlyDuplicates) {
+      new Notice("侧栏里没有 PDF 标签，不用清理", 3000);
+    }
   }
 
   /**
@@ -408,7 +513,8 @@ export default class PdfAnnotatorPlugin extends Plugin {
       }
     }
 
-    const target = leaf ?? this.app.workspace.getLeaf("tab");
+    // 侧栏 leaf 不接受：那里是文件浏览器/搜索的地盘，塞 PDF 进去会顶掉用户的布局
+    const target = leaf && !this.isInSidebar(leaf) ? leaf : this.app.workspace.getLeaf("tab");
     await target.setViewState({
       type: PDF_VIEW_TYPE,
       state: link ? { file: file.path, link } : { file: file.path },

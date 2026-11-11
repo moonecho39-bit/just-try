@@ -2312,7 +2312,7 @@ export class PDFFileView extends ItemView {
     el.textContent = "";
     if (!body.trim()) {
       el.classList.add("is-empty");
-      el.textContent = "还没有写批注 · 点右上角铅笔补充";
+      el.textContent = "还没有写批注 · 点铅笔补充";
       return;
     }
     el.classList.remove("is-empty");

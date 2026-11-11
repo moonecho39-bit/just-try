@@ -151,9 +151,25 @@ to, so persisting them would degrade to a bounding box on reload; the bubble say
 the rectangle tool instead.
 
 Cards live in an overlay attached to the **scroll container**, not the page: `.pdfa-page` uses
-`overflow: hidden` + `contain: paint`, which would clip anything drawn outside the page box. When
-neither margin is wide enough (narrow pane, heavy zoom) the card falls back inside the page and the
-leader line is dropped — a line crossing the body text reads worse than no line.
+`overflow: hidden` + `contain: paint`, which would clip anything drawn outside the page box.
+
+**Card width follows the margin (fixed in 0.8.1).** 0.8.0 hard-coded 236px and decided "fits /
+does not fit" against that number. On a 1536px window at 125% zoom each margin is only ~200px, so
+every card was judged "does not fit" and fell back **on top of the body text** — exactly the thing
+margin cards exist to avoid. Now the wider margin is measured and the card is sized to
+`min(236, margin − 12 − 6)`:
+
+| Available margin | Card width | Result |
+|---|---|---|
+| ≥ 254px | 236px (cap) | in the margin, dashed leader to the highlight |
+| 128 – 254px | shrinks with the margin, switches to the compact layout | in the margin, leader drawn |
+| < 128px | falls back inside the page | covers a slice of text, no leader |
+
+The last row is a physical limit — at that size the page already fills the pane. Note the scrollbar
+eats ~15px; `clientWidth` already excludes it, so the measurement is what you actually see.
+
+The leader always leaves from the **page edge, at the height of the annotated line** — not from the
+end of the highlight, which would cut across the remaining words on that line.
 
 Under the hood it is still a single `NoteAnnotation` with an optional `rects` field: with `rects` it
 renders a highlight + card, without it you get the classic pin. Storage is unchanged, so no existing
@@ -175,6 +191,21 @@ Page jumps are applied via `scrollTop`, not `scrollIntoView`, so the toolbar can
 out of the viewport.
 
 ---
+
+### Never hijacks a sidebar (fixed in 0.8.1)
+
+The "open .pdf with this plugin" fallback used to call `setViewState` on `workspace.activeLeaf`
+whenever `file-open` fired. Sounds harmless, but the active leaf is often a **sidebar** leaf — that
+is where focus sits right after you click a file in the explorer. The PDF then opened inside the
+sidebar: your file explorer got pushed to a background tab ("why did my folder icon move up there")
+and the sidebar kept a PDF tab you could not close (its × is usually hidden under the window
+buttons).
+
+Now: only a main-area leaf showing that exact file is converted (`findPdfLeafFor`), otherwise a new
+main-area tab is opened; `openPdf()` rejects sidebar leaves; on startup duplicated sidebar tabs of
+an already-open PDF are closed; and the command **`关掉侧栏里误开的 PDF 标签`** cleans up manually.
+"Sidebar or not" is decided by comparing `leaf.getRoot()` against `workspace.leftSplit` /
+`rightSplit` — sidebars and the main area are separate split trees, so reference equality is exact.
 
 ## Comparison
 

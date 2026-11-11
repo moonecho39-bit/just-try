@@ -100,6 +100,12 @@ const fakeWorkspace = {
   getLeavesOfType: () => [],
   setActiveLeaf: () => undefined,
   detachLeavesOfType: () => undefined,
+  // 三块工作区根：用不同的空对象，才能验证 isInSidebar 真的在比较引用
+  rootSplit: { kind: "root" },
+  leftSplit: { kind: "left" },
+  rightSplit: { kind: "right" },
+  activeLeaf: null,
+  onLayoutReady: (cb) => cb(),
 };
 
 const fakeApp = {
@@ -147,7 +153,16 @@ const fakeThis = {
   }
 
   fakeThis.manifest.version = manifest.version;
-  await PluginClass.prototype.onload.call(fakeThis);
+  /*
+   * 先把假宿主的属性抄成**自有属性**，再把原型换成插件类 ——
+   * onload 里会调自己的实例方法（比如 closeSidebarPdfLeaves），裸对象上根本没有，
+   * 会误报"onload 抛异常"。
+   * 注意顺序：不能写成 Object.assign(Object.create(proto), fakeThis)，
+   * 因为 obsidian 桩件的原型是 Proxy，set 陷阱直接吞掉赋值，属性一个都抄不进去。
+   */
+  const pluginThis = { ...fakeThis };
+  Object.setPrototypeOf(pluginThis, PluginClass.prototype);
+  await PluginClass.prototype.onload.call(pluginThis);
 
   console.log(`\n=== 加载 ${manifest.name} v${manifest.version} ===`);
   console.log(`视图:        ${views.map((v) => v.type).join(", ") || "(无)"}`);

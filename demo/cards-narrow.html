@@ -1,0 +1,109 @@
+<!doctype html>
+<!--
+  卡片「待在页面外侧空白」验证页 —— 复刻 0.8.0 的真实现场：
+  1536px 窗口、页面 798px 宽，两侧只剩约 216px 空白。
+
+  0.8.0 的卡片写死 236px，判"放不下"就退回页面内侧，正好压在正文上。
+  这个页面用来确认 0.8.1：卡片收窄到空白宽度、待在页面外，虚线连回高亮。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      :root {
+        --background-primary: #ffffff;
+        --background-secondary: #eef0f4;
+        --background-primary-alt: #fafafa;
+        --background-modifier-border: #d8d8d8;
+        --background-modifier-hover: #ececec;
+        --text-normal: #1f1f1f;
+        --text-muted: #666;
+        --text-faint: #999;
+        --text-error: #c0392b;
+        --interactive-accent: #7c5cff;
+        --interactive-accent-hover: #6b4cf0;
+        --text-on-accent: #fff;
+        --font-ui-small: 13px;
+        --font-ui-smaller: 12px;
+        --font-monospace: monospace;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .host {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .host-header {
+        height: 30px;
+        background: #fafafa;
+        border-bottom: 1px solid #ddd;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        color: #666;
+        flex: 0 0 auto;
+      }
+      .host-body {
+        flex: 1 1 auto;
+        display: flex;
+        min-height: 0;
+      }
+      .pdfa-shell {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .pdfa-body {
+        display: flex;
+        height: 100%;
+      }
+      .fake-text {
+        position: absolute;
+        inset: 40px 46px;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #dcdcdc 0 8px,
+          transparent 8px 20px
+        );
+        opacity: 0.85;
+      }
+      .fake-hl {
+        position: absolute;
+        background: rgba(245, 197, 66, 0.45);
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="host">
+      <div class="host-header">页面 798px · 内容区 1231px · 两侧空白约 216px</div>
+      <div class="host-body">
+        <div class="pdfa-shell">
+          <div class="pdfa-body">
+            <div class="pdfa-scroller" id="scroller">
+              <div class="pdfa-pages">
+                <div class="pdfa-page" data-page="1" style="width: 798px; height: 1030px">
+                  <div class="fake-text"></div>
+                  <div class="fake-hl" style="left: 60px; top: 120px; width: 320px; height: 14px"></div>
+                  <div class="fake-hl" style="left: 60px; top: 150px; width: 280px; height: 14px"></div>
+                  <div class="fake-hl" style="left: 60px; top: 700px; width: 340px; height: 14px"></div>
+                </div>
+                <div class="pdfa-page" data-page="2" style="width: 798px; height: 1030px">
+                  <div class="fake-text"></div>
+                  <div class="fake-hl" style="left: 60px; top: 300px; width: 300px; height: 14px"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="./cards-check.js"></script>
+  </body>
+</html>
