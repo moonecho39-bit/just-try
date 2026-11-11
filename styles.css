@@ -1568,3 +1568,178 @@ body.pdfa-linking-drag {
   gap: 10px;
   margin-top: 18px;
 }
+
+/* ==========================================================================
+   批注卡片（页面外侧"看得见的批注"）
+   ==========================================================================
+   位置基准是 .pdfa-scroller（不是 .pdfa-page）：页面容器为了性能设了
+   overflow: hidden + contain: paint，卡片画在里面会被裁掉。
+   浮层本身 pointer-events: none，只有卡片自己接管指针，
+   否则整块透明层会挡住"拖选文字"。
+   ========================================================================== */
+
+.pdfa-shell .pdfa-scroller {
+  /* 卡片浮层的绝对定位原点 */
+  position: relative;
+}
+
+.pdfa-shell .pdfa-cards {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 0;
+  /* 卡片可以超出这个 0 高度的盒子，这是刻意的：盒子只是坐标系原点 */
+  overflow: visible;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.pdfa-shell .pdfa-cards.is-hidden .pdfa-card {
+  display: none;
+}
+
+.pdfa-shell .pdfa-card-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.pdfa-shell .pdfa-card {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  /* 底色偏白 + 阴影，浮在灰色画布上才有"卡片"感 */
+  background: var(--background-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 10px 24px rgba(0, 0, 0, 0.08);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-normal);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.pdfa-shell .pdfa-card:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16), 0 14px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* 压在页面内侧时半透明一点：让人看出它是浮层，而不是正文的一部分 */
+.pdfa-shell .pdfa-card[data-side="inside"] {
+  opacity: 0.96;
+}
+
+.pdfa-shell .pdfa-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  user-select: none;
+}
+
+.pdfa-shell .pdfa-card-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.pdfa-shell .pdfa-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.pdfa-shell .pdfa-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+
+.pdfa-shell .pdfa-card-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.pdfa-shell .pdfa-card-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdfa-shell .pdfa-card-btn .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.pdfa-shell .pdfa-card-body {
+  padding: 7px 9px 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  line-height: 1.55;
+  /* 卡片里的 Markdown：首尾段落不要各撑一行空 */
+  word-break: break-word;
+}
+
+.pdfa-shell .pdfa-card-body > :first-child {
+  margin-top: 0;
+}
+
+.pdfa-shell .pdfa-card-body > :last-child {
+  margin-bottom: 0;
+}
+
+.pdfa-shell .pdfa-card-body.is-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.pdfa-shell .pdfa-card.is-collapsed .pdfa-card-body {
+  display: none;
+}
+
+/* 点卡片时让对应批注闪一下，指明"这张卡说的是哪段字" */
+.pdfa-shell .pdfa-anno.is-flash {
+  animation: pdfa-anno-flash 0.45s ease-in-out 2;
+}
+
+@keyframes pdfa-anno-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* 窄屏：卡片缩窄，避免把正文挤没 */
+@media (max-width: 720px) {
+  .pdfa-shell .pdfa-card {
+    max-width: 200px;
+  }
+}

@@ -227,6 +227,17 @@ export class PageLayer {
     }
   }
 
+  /**
+   * 让某条批注闪一下（点卡片时用）。
+   * 只是加一个 class 再摘掉，不进签名、不重建节点 —— 闪烁不该被当成内容变化。
+   */
+  flashAnnotation(id: string): void {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    node.classList.add("is-flash");
+    window.setTimeout(() => node.classList.remove("is-flash"), 900);
+  }
+
   /** 工具切换时由上层调用：决定这一层是否吃指针 */
   refreshTool(): void {
     this.syncToolClass();
@@ -892,7 +903,31 @@ export class PageLayer {
         break;
       }
       case "note": {
-        this.buildPin(g, a);
+        /*
+         * 有 rects = 「给这段文字加的批注」，页面上要同时出现两样东西：
+         *   ① 底纹（告诉人这段被批注了）② 图钉（点它开编辑器）。
+         * 两者必须分装在两个 <g> 里：buildPin 会给自己那个 g 设 transform，
+         * 底纹若和它在同一个 g 里，会跟着整体 translate 到锚点上，位置全错。
+         */
+        if (a.rects && a.rects.length > 0) {
+          const mark = svgEl("g", { class: "pdfa-note-mark" }, g);
+          for (const r of a.rects) {
+            svgEl(
+              "rect",
+              {
+                class: "pdfa-hl",
+                x: r.x * bw,
+                y: r.y * bh,
+                width: r.w * bw,
+                height: r.h * bh,
+                fill: a.color,
+                "fill-opacity": a.opacity ?? ANNOT_DEFAULTS.highlightOpacity,
+              },
+              mark,
+            );
+          }
+        }
+        this.buildPin(svgEl("g", {}, g), a);
         break;
       }
     }

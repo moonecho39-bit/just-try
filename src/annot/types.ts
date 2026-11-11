@@ -89,6 +89,18 @@ export interface NoteAnnotation extends AnnotationBase {
   at: Point;
   /** Markdown 源文；阶段四接富文本时这里只换渲染器，不换存储 */
   body: string;
+  /**
+   * 「给这段文字加批注」时被批注的那几行矩形（NORM）。
+   *
+   * 为什么挂在便签上，而不是新建一种 `kind`：
+   *   · 落盘格式完全复用 —— 伴生笔记里还是同一个 Callout + `^pdfa-note-<id>` 锚点，
+   *     老笔记一条都不用迁移；
+   *   · 有 rects = 页面上同时画出高亮底纹 + 卡片；没有 rects = 只有图钉（旧行为）；
+   *   · 撤销/删除/回填(hydrate) 走的是同一套代码路径，少一整套分支。
+   */
+  rects?: Rect[];
+  /** 底纹不透明度（仅 rects 存在时有意义），缺省按高亮处理 */
+  opacity?: number;
 }
 
 export type Annotation =

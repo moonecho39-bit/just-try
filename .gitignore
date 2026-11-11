@@ -22,3 +22,6 @@ demo/*.png
 .DS_Store
 Thumbs.db
 *.log
+
+# demo 验证页的打包产物（由 esbuild 现场生成）
+demo/cards-check.js

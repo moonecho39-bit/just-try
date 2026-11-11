@@ -89,6 +89,13 @@ import {
 import { attachPointer } from "../src/ui/pointer";
 import { applyTransform } from "../src/link/textIndex";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "../src/ai/settings";
+import { chooseLane, packCards } from "../src/annot/cardLayout";
+import {
+  lastEofEnd,
+  repairedCopyPath,
+  trailingJunkLength,
+  trimTrailingJunk,
+} from "../src/pdf/trailer";
 
 let failed = 0;
 
@@ -887,6 +894,130 @@ function testSettings(): void {
   );
 }
 
+/**
+ * [O] 批注卡片的排布
+ *
+ * 这两件事只跟数字有关，所以抽成纯函数单测：
+ * 卡片之间的**避让**（不能叠成一坨）与**选道**（放页面外面还是压进内侧）。
+ * 出错的后果是肉眼可见的：卡片压在正文上、或者两张卡叠在一起。
+ */
+function testCardLayout(): void {
+  console.log("\n[O] 批注卡片排布");
+
+  // 互不冲突时保持原位（不能因为排一下就把卡片挪走）
+  const loose = packCards([
+    { id: "a", top: 10, height: 40 },
+    { id: "b", top: 100, height: 40 },
+  ]);
+  check("无冲突保持原位", loose[0].top === 10 && loose[1].top === 100, loose);
+
+  // 冲突时依次下推，且至少留出 gap
+  const tight = packCards([
+    { id: "a", top: 10, height: 60 },
+    { id: "b", top: 20, height: 60 },
+  ]);
+  check("冲突时下推且留出间隔", tight[1].top >= tight[0].top + 60 + 10, tight);
+
+  // 输入顺序打乱，输出仍按 top 升序（否则下推方向会乱）
+  const shuffled = packCards([
+    { id: "c", top: 200, height: 30 },
+    { id: "a", top: 0, height: 30 },
+    { id: "b", top: 5, height: 30 },
+  ]);
+  check(
+    "乱序输入按纵坐标排序",
+    shuffled.map((p) => p.id).join(",") === "a,b,c",
+    shuffled.map((p) => p.id),
+  );
+
+  // 高度为 0（正文还没渲染完）不能把后面的卡片全挤到同一个点上
+  const zero = packCards([
+    { id: "a", top: 50, height: 0 },
+    { id: "b", top: 50, height: 0 },
+  ]);
+  check("零高度仍保持间隔", zero[1].top >= zero[0].top + 10, zero);
+
+  // 选道：右侧空白够 → 放右边，且紧贴页边 + gap
+  const right = chooseLane({ pageLeft: 100, pageRight: 900, viewWidth: 1300, cardWidth: 236 });
+  check("右侧有空间走右侧", right.side === "right" && right.left === 912, right);
+
+  // 右侧不够（窗口窄），左侧够 → 走左侧，且右边缘与页边留 gap
+  const left = chooseLane({ pageLeft: 400, pageRight: 1200, viewWidth: 1300, cardWidth: 236 });
+  check(
+    "右侧不够改走左侧",
+    left.side === "left" && near(left.left + 236, 400 - 12, 1e-6),
+    left,
+  );
+
+  // 两侧都不够（放大到很大）→ 压回内侧，且不能跑出左边界
+  const inside = chooseLane({ pageLeft: 20, pageRight: 1280, viewWidth: 1300, cardWidth: 236 });
+  check(
+    "两侧都不够时压回内侧且不出界",
+    inside.side === "inside" && inside.left >= 0 && inside.left + 236 <= 1300,
+    inside,
+  );
+}
+
+/**
+ * [P] PDF 尾部垃圾（知网下载器的招牌）
+ *
+ * 这类文件的病在文件本身：`%%EOF` 之后被追加了 XML 元数据，
+ * 老解析器从后往前找不到 `startxref`，于是空白页 + 0/0。
+ * 处理逻辑是纯字节运算，必须单测 —— 它要改用户的文件，不能靠"看起来对"。
+ */
+function testPdfTrailer(): void {
+  console.log("\n[P] PDF 尾部垃圾识别");
+
+  const enc = (s: string): Uint8Array => {
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+  };
+  const dec = (b: Uint8Array): string => Array.from(b).map((c) => String.fromCharCode(c)).join("");
+
+  // 干净文件：%%EOF 之后只有一个换行
+  const clean = enc("%PDF-1.6\n1 0 obj<<>>endobj\nstartxref\n123\n%%EOF\n");
+  check("干净文件没有尾部垃圾", trailingJunkLength(clean) === 0, trailingJunkLength(clean));
+  check("干净文件无需裁剪", trimTrailingJunk(clean) === null);
+
+  // 知网那种：%%EOF 之后追加 WebFastLoad XML
+  const dirty = enc("%PDF-1.6\nstartxref\n123\n%%EOF\nWebFastLoad\u00ef\u00bb\u00bf<Doi>10.1/x</Doi>");
+  check("能数出尾部垃圾字节", trailingJunkLength(dirty) > 0, trailingJunkLength(dirty));
+  const fixed = trimTrailingJunk(dirty);
+  check("裁剪后非 null", fixed !== null);
+  check(
+    "裁剪后以 %%EOF 收尾",
+    fixed !== null && dec(fixed).replace(/\n$/, "").endsWith("%%EOF"),
+    fixed ? dec(fixed).slice(-20) : null,
+  );
+  check(
+    "裁剪后长度等于到 EOF 末尾",
+    fixed !== null && fixed.length === lastEofEnd(dirty) + 1,
+    fixed ? [fixed.length, lastEofEnd(dirty)] : null,
+  );
+
+  // 增量更新的 PDF 会有多个 %%EOF，只能用最后一个
+  const multi = enc("%PDF-1.7\nstartxref\n9\n%%EOF\n1 0 obj<<>>endobj\nstartxref\n99\n%%EOF\nJUNKJUNK");
+  const cut = trimTrailingJunk(multi);
+  check("多个 %%EOF 取最后一个", cut !== null && dec(cut).includes("startxref\n99"), cut ? cut.length : null);
+
+  // 根本不是 PDF
+  check("没有 %%EOF 返回 -1", trailingJunkLength(enc("not a pdf at all")) === -1);
+  check("没有 %%EOF 不裁剪", trimTrailingJunk(enc("not a pdf at all")) === null);
+
+  // 副本命名
+  check(
+    "副本名带（修复版）",
+    repairedCopyPath("a/b/论文.pdf") === "a/b/论文（修复版）.pdf",
+    repairedCopyPath("a/b/论文.pdf"),
+  );
+  check(
+    "重名时追加序号",
+    repairedCopyPath("论文.pdf", (p) => p === "论文（修复版）.pdf") === "论文（修复版 2）.pdf",
+    repairedCopyPath("论文.pdf", (p) => p === "论文（修复版）.pdf"),
+  );
+}
+
 function testNoteFormat(): void {
   console.log("\n[L] 便签格式：Callout + 块锚点往返");
 
@@ -1163,6 +1294,8 @@ async function main(): Promise<void> {
   testBacklinkLayer();
   testAiProtocol();
   testNoteFormat();
+  testCardLayout();
+  testPdfTrailer();
   testSettings();
   await testPointer();
   console.log(failed === 0 ? "\n全部通过 ✅" : `\n${failed} 项失败 ❌`);

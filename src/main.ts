@@ -19,6 +19,7 @@ import { parsePdfLink } from "./link/format";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type PluginSettings } from "./ai/settings";
 import { PdfAnnotatorSettingTab } from "./ai/settingsTab";
 import { AI_TASKS } from "./ai/types";
+import { repairedCopyPath, trailingJunkLength, trimTrailingJunk } from "./pdf/trailer";
 
 export default class PdfAnnotatorPlugin extends Plugin {
   /** 全部设置（AI + 便签）；UI 层直接读，改完调 saveSettings() */
@@ -159,6 +160,19 @@ export default class PdfAnnotatorPlugin extends Plugin {
         new Notice(lines.join("\n"), 8000);
         console.info("[PDF View]", lines.join(" | "));
       },
+    });
+
+    /*
+     * PDF 尾部垃圾诊断（知网/万方常见）。
+     *
+     * 为什么值得单独一条命令：这类文件的"病"在文件本身，不在插件。
+     * 用户看到的是"原生查看器空白 + 0/0"，但 Edge / 新版 pdf.js 打开同一个文件却正常，
+     * 于是所有排查都指向"插件坏了"。这条命令一次给出结论，并且直接产出可用的副本。
+     */
+    this.addCommand({
+      id: "repair-pdf-trailer",
+      name: "诊断 PDF 尾部垃圾并生成修复版",
+      callback: () => void this.repairPdfTrailer(),
     });
 
     /*
@@ -303,6 +317,69 @@ export default class PdfAnnotatorPlugin extends Plugin {
   private getActivePdfFile(): TFile | null {
     const file = this.app.workspace.getActiveFile();
     return file && file.extension.toLowerCase() === "pdf" ? file : null;
+  }
+
+  /**
+   * 诊断当前 PDF 的尾部垃圾，命中就生成一份修复版副本。
+   *
+   * 只写副本、绝不改原文件：用户的论文不该被插件动过。
+   * 副本名带（修复版），重名自动加序号。
+   */
+  private async repairPdfTrailer(): Promise<void> {
+    const file = this.getActivePdfFile();
+    if (!file) {
+      new Notice("请先在文件列表中选中一个 PDF（或先把它打开）");
+      return;
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await this.app.vault.readBinary(file));
+    } catch (err) {
+      console.error("[PDF View] 读取 PDF 失败", err);
+      new Notice("读取 PDF 失败，详见控制台（Ctrl+Shift+I）");
+      return;
+    }
+
+    const junk = trailingJunkLength(bytes);
+    if (junk < 0) {
+      new Notice(`这个文件里找不到 %%EOF 标记，可能不是 PDF 或已损坏：\n${file.path}`, 8000);
+      return;
+    }
+    if (junk === 0) {
+      new Notice(
+        "尾部是干净的（没有多余元数据），问题不在文件尾。\n" +
+          "另外两个常见原因：① 文件还没下载/复制完（字节数明显偏小）；② 把 .caj / .nh 改名成了 .pdf",
+        9000,
+      );
+      return;
+    }
+
+    const fixed = trimTrailingJunk(bytes);
+    if (!fixed) {
+      new Notice("没有可裁剪的内容");
+      return;
+    }
+
+    const target = repairedCopyPath(file.path, (p) => this.app.vault.getAbstractFileByPath(p) !== null);
+    try {
+      const buf = fixed.buffer.slice(fixed.byteOffset, fixed.byteOffset + fixed.byteLength) as ArrayBuffer;
+      await this.app.vault.createBinary(target, buf);
+    } catch (err) {
+      console.error("[PDF View] 写入修复版失败", err);
+      new Notice("写入修复版失败，详见控制台（Ctrl+Shift+I）");
+      return;
+    }
+
+    const before = (bytes.length / 1024).toFixed(0);
+    const after = (fixed.length / 1024).toFixed(0);
+    new Notice(
+      `已生成修复版：${target}\n` +
+        `去掉了 %%EOF 之后的 ${junk} 字节（${before} KB → ${after} KB）\n` +
+        "用这份副本替代原文件后，Obsidian 内置查看器就能正常打开",
+      12000,
+    );
+    console.info(`[PDF View] 尾部垃圾 ${junk} 字节 → 已生成 ${target}`);
   }
 
   private async openActivePdf(): Promise<void> {

@@ -83,6 +83,8 @@ import { ColorPopover } from "./ui/colorPopover";
 import { NoteEditor } from "./ui/noteEditor";
 import { ContextMenu, type MenuItem } from "./ui/contextMenu";
 import { BacklinkPanel } from "./ui/backlinkPanel";
+import { CardOverlay, type CardVM } from "./ui/noteCards";
+import { MarkdownPreview } from "./ui/mdRender";
 import { FloatingHint } from "./ui/hint";
 import { LinkDrag } from "./ui/linkDrag";
 import { AiModal } from "./ui/aiModal";
@@ -234,6 +236,11 @@ export class PDFFileView extends ItemView {
   private notesHydrated = false;
 
   private pages = new Map<number, PageElements>();
+  /** 批注卡片浮层（页面外侧那条"看得见的批注"） */
+  private cardOverlay: CardOverlay | null = null;
+  private cardsBtnEl!: HTMLElement;
+  /** 卡片默认开：用户要的就是"看得见"，默认关等于没做 */
+  private cardsVisible = true;
   /** 自增代际号：切换文件 / 重建页面后，旧的异步任务据此自我作废 */
   private generation = 0;
   /** 串行渲染队列：避免同一时刻多个 page.render 抢主线程 */
@@ -330,6 +337,22 @@ export class PDFFileView extends ItemView {
     this.scrollerEl = body.createDiv({ cls: "pdfa-scroller" });
     this.pagesEl = this.scrollerEl.createDiv({ cls: "pdfa-pages" });
 
+    /*
+     * 批注卡片浮层挂在**滚动区**上，不是挂在页面里：
+     * 页面容器为了性能设了 overflow:hidden + contain:paint，卡片画在里头会被裁掉。
+     */
+    this.cardOverlay = new CardOverlay(this.scrollerEl, {
+      pageEl: (page) => this.pages.get(page)?.root ?? null,
+      onEdit: (id) => {
+        const anno = this.store.get(id);
+        if (anno?.kind === "note") this.openNoteEditor(anno);
+      },
+      onDelete: (id) => this.removeNoteById(id),
+      onSelect: (id) => this.revealNote(id),
+      renderBody: (el, body) => this.renderCardBody(el, body),
+    });
+    this.cardOverlay.setVisible(this.cardsVisible);
+
     this.backlinkPanel = new BacklinkPanel({
       onActivate: (entry) => this.bg("跳转到笔记", this.jumpToNote(entry)),
       onHover: (entry) => this.setHoverBacklink(entry ? { page: entry.page, key: entry.key } : null),
@@ -354,6 +377,8 @@ export class PDFFileView extends ItemView {
           this.pages.get(page)?.layer.setAnnotations(this.store.getPage(page));
         }
         this.syncHistoryButtons();
+        // 增删改任何一条批注都可能改变卡片（正文、位置、有无），统一刷新
+        this.refreshCards();
       }),
     );
     this.unsubscribes.push(this.tool.change.on(() => this.syncToolUi()));
@@ -409,6 +434,8 @@ export class PDFFileView extends ItemView {
     this.linkDrag.destroy();
     this.backlinkPanel?.destroy();
     this.backlinkPanel = null;
+    this.cardOverlay?.destroy();
+    this.cardOverlay = null;
 
     for (const el of this.pages.values()) el.layer.destroy();
     this.pages.clear();
@@ -514,6 +541,9 @@ export class PDFFileView extends ItemView {
     /* ── 组 5：面板与 AI ──────────────────────────────────────────── */
     const side = bar.createDiv({ cls: "pdfa-group" });
 
+    /* 批注卡片开关：卡片默认开，但读论文时也会想"只要高亮、别弹卡片"，所以给个开关 */
+    this.cardsBtnEl = this.iconButton(side, "sticky-note", "显示 / 隐藏批注卡片", () => this.toggleCards());
+
     /* 反向链接面板开关：带一个数量角标，否则用户不知道这篇 PDF 有没有回链 */
     this.backlinkBtnEl = side.createEl("button", {
       cls: "pdfa-icon-btn pdfa-backlink-btn",
@@ -536,6 +566,9 @@ export class PDFFileView extends ItemView {
 
     const hint = bar.createDiv({ cls: "pdfa-toolbar-hint" });
     hint.setText("Esc 退出工具");
+
+    // 卡片默认是开的，按钮要如实反映（否则用户以为点了才开）
+    this.cardsBtnEl.classList.toggle("is-active", this.cardsVisible);
   }
 
   /** 工具栏里的图标按钮：统一 aria / title / 尺寸，省掉每处重复的 createEl */
@@ -686,6 +719,17 @@ export class PDFFileView extends ItemView {
         this.applyTextMark(action, null, true);
         return;
 
+      /*
+       * 批注：一步做完三件事 —— 高亮这段文字、在旁边立一张卡片、打开编辑器。
+       * 分三步让用户自己点（高亮 → 右键 → 添加批注）太绕，这是最主要的使用路径。
+       */
+      case "annotate": {
+        const created = this.applyTextMark("highlight", null, true);
+        const mark = created[0];
+        if (mark) this.attachNoteToMark(mark);
+        return;
+      }
+
       case "ai":
         // 不先清选区：AI 需要选区里的文字，Modal 打开后选区被遮住也不影响
         this.showAiMenu(anchor ?? this.aiBtnEl);
@@ -827,6 +871,8 @@ export class PDFFileView extends ItemView {
     this.scrollerEl.scrollTop = 0;
     this.syncPageUi(1);
     this.refreshVisible();
+    // 页面尺寸变了，卡片的锚点与左右选道都要重算
+    this.refreshCards();
 
     // 回链扫描与页面渲染并行：只取文本，不用等位图
     void this.refreshBacklinks();
@@ -1078,6 +1124,9 @@ export class PDFFileView extends ItemView {
 
     // ④ 光标锚定：以指针下的页面点为不动点缩放
     if (cursor) this.applyCursorAnchor(cursor);
+
+    // ⑤ 页面尺寸全变了：卡片的锚点与左右选道必须重排，否则会飘到别处
+    this.refreshCards();
   }
 
   private captureAnchor(): { page: number; ratio: number } | null {
@@ -1365,6 +1414,17 @@ export class PDFFileView extends ItemView {
 
   private showAnnotationMenu(anno: Annotation, ev: ClientPos): void {
     const items: MenuItem[] = [];
+    /*
+     * 「添加批注」放第一条：这是用户在高亮上最常想做的事，
+     * 也是把"高亮"升级成"看得见的批注卡片"的唯一入口。
+     */
+    if (isTextMark(anno)) {
+      items.push({
+        label: "添加批注…",
+        icon: "message-square",
+        onClick: () => this.attachNoteToMark(anno),
+      });
+    }
     if (anno.kind === "note") {
       items.push({ label: "编辑便签", icon: "pencil", onClick: () => this.openNoteEditor(anno) });
       items.push({ label: "在笔记中打开这一条", icon: "external-link", onClick: () => this.bg("打开便签", this.openNoteBlock(anno)) });
@@ -1706,7 +1766,16 @@ export class PDFFileView extends ItemView {
     }
 
     if (anno.kind === "note") {
-      // 便签没有选区：在锚点处取一个 4pt 的小方块当 rect=，
+      /*
+       * 「给这段文字加的批注」必须用 rects 建链接，而不是锚点小方块：
+       * 只有 selection= 才能让链接精确指回那段字，也才能让下次打开时
+       * 把高亮原样重建出来（否则会退化成一个孤零零的图钉）。
+       */
+      if (anno.rects && anno.rects.length > 0) {
+        const built = await this.buildLinkForRects(anno.page, anno.rects, anno.color);
+        return built ? { ...built, note: anno.body, page: anno.page } : null;
+      }
+      // 纯图钉没有选区：在锚点处取一个 4pt 的小方块当 rect=，
       // 这样它的位置在链接里是确定的（否则笔记里的链接就丢了"钉在哪"）
       const geo = this.pages.get(anno.page)?.geometry;
       if (!geo) return null;
@@ -2015,8 +2084,16 @@ export class PDFFileView extends ItemView {
       const idx = await this.getTextIndex(note.page);
       if (gen !== this.generation) return;
       const target = parsePdfLink(note.link);
-      const at =
-        idx && target?.rect
+      /*
+       * 链接里带 selection= 说明这条批注是「给某段文字加的」：
+       * 用文本索引把行级矩形原样重建，高亮与卡片才会重新贴回那段字。
+       * 只有 rect= 的是纯图钉（钉在一个点上），按中心点放即可。
+       */
+      const rects = idx && target ? linkRectsOnPage(target, idx) : [];
+      const first = rects[0];
+      const at = first
+        ? { x: first.x + Math.min(first.w, 0.02), y: first.y + Math.min(first.h, 0.02) }
+        : idx && target?.rect
           ? quadCenterToNorm(target.rect, idx.transform, idx.width, idx.height, applyTransform)
           : { x: 0.5, y: 0.5 };
 
@@ -2030,6 +2107,8 @@ export class PDFFileView extends ItemView {
           at,
           body: note.body,
           color: note.color,
+          rects: rects.length > 0 ? rects : undefined,
+          opacity: rects.length > 0 ? ANNOT_DEFAULTS.highlightOpacity : undefined,
           createdAt: now,
           updatedAt: now,
         },
@@ -2037,9 +2116,111 @@ export class PDFFileView extends ItemView {
       );
     }
     this.notesHydrated = true;
+    this.refreshCards();
   }
 
   /** 便签 → 伴生笔记（新建或更新那一块） */
+  /* ---------------------------------------------------------------- *
+   * 批注卡片：页面外侧"看得见的批注"
+   * ---------------------------------------------------------------- */
+
+  private toggleCards(): void {
+    this.cardsVisible = !this.cardsVisible;
+    this.cardOverlay?.setVisible(this.cardsVisible);
+    this.cardsBtnEl?.classList.toggle("is-active", this.cardsVisible);
+    if (this.cardsVisible) this.refreshCards();
+    new Notice(this.cardsVisible ? "已显示批注卡片" : "已隐藏批注卡片（批注内容仍在笔记里）", 1600);
+  }
+
+  /** 把 store 里「带选区的便签」同步成卡片；纯图钉（无 rects）不弹卡片 */
+  private refreshCards(): void {
+    const overlay = this.cardOverlay;
+    if (!overlay) return;
+    const vms: CardVM[] = [];
+    for (const anno of this.store.all()) {
+      if (anno.kind !== "note") continue;
+      const rects = anno.rects;
+      if (!rects || rects.length === 0) continue;
+      const pageEl = this.pages.get(anno.page)?.root;
+      const h = pageEl?.clientHeight ?? 0;
+      const first = rects[0];
+      vms.push({
+        id: anno.id,
+        page: anno.page,
+        color: anno.color,
+        title: `批注 · p.${anno.page}`,
+        body: anno.body,
+        // 锚点取第一行中线：卡片头部大致对齐这段文字
+        anchorTop: (first.y + first.h / 2) * (h || 1),
+      });
+    }
+    overlay.setCards(vms);
+  }
+
+  private renderCardBody(el: HTMLElement, body: string): Promise<void> | void {
+    el.textContent = "";
+    if (!body.trim()) {
+      el.classList.add("is-empty");
+      el.textContent = "还没有写批注 · 点右上角铅笔补充";
+      return;
+    }
+    el.classList.remove("is-empty");
+    const source = this.filePath ? (this.noteStore?.pathFor(this.filePath) ?? this.filePath) : "";
+    // 每张卡各用一个渲染器：MarkdownPreview 内部是单组件，共用会互相 unload
+    return new MarkdownPreview(this.app).render(el, body, source);
+  }
+
+  /** 点卡片：滚到对应位置并闪一下 —— 否则用户不知道这张卡对应哪段字 */
+  private revealNote(id: string): void {
+    const anno = this.store.get(id);
+    if (anno?.kind !== "note") return;
+    const el = this.pages.get(anno.page);
+    if (!el) return;
+    const target = el.root.offsetTop + anno.at.y * el.root.clientHeight - this.scrollerEl.clientHeight / 3;
+    this.scrollerEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+    el.layer.flashAnnotation(anno.id);
+  }
+
+  private removeNoteById(id: string): void {
+    const anno = this.store.get(id);
+    if (anno?.kind !== "note") return;
+    this.store.remove(id);
+    this.noteEditor.close(false);
+    this.bg("删除便签", this.deleteNoteBlock(id));
+  }
+
+  /**
+   * 把一段高亮 / 下划线升级成「带批注的便签」。
+   *
+   * 刻意复用同一个 id 改 kind，而不是新建一条批注：
+   *   · store.update 只记一条 before/after，撤销是一步（而不是"撤一次留个空图钉"）；
+   *   · 不会出现"高亮 + 图钉"两份数据指向同一段文字，删一个还剩一个；
+   *   · 落盘格式与普通便签完全一致，已存在的笔记一条都不用迁移。
+   */
+  private attachNoteToMark(mark: Annotation): void {
+    if (!isTextMark(mark)) return;
+    const first = mark.rects[0];
+    if (!first) return;
+
+    const note: NoteAnnotation = {
+      id: mark.id,
+      kind: "note",
+      page: mark.page,
+      color: mark.color,
+      at: { x: first.x + Math.min(first.w, 0.02), y: first.y + Math.min(first.h, 0.02) },
+      body: "",
+      rects: mark.rects.map((r) => ({ ...r })),
+      opacity: mark.kind === "highlight" ? mark.opacity : 0.25,
+      createdAt: mark.createdAt,
+      updatedAt: Date.now(),
+    };
+
+    this.store.update(note);
+    // 先落盘（写进伴生笔记）再开编辑器：用户直接关掉浮层，这条批注也不会丢
+    this.bg("保存便签", this.persistNote(note));
+    window.requestAnimationFrame(() => this.openNoteEditor(note));
+  }
+
   private async persistNote(anno: NoteAnnotation): Promise<void> {
     const store = this.noteStore;
     const path = this.filePath;

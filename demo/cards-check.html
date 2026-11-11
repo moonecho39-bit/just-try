@@ -1,0 +1,108 @@
+<!doctype html>
+<!--
+  批注卡片验证页：用真实 CardOverlay + 真实 styles.css 渲染假页面，
+  在 Edge 无头模式里截图检查三件事：
+    · 页面右侧有空白 → 卡片在页面外，虚线连回高亮
+    · 窗口很窄 → 卡片压回页面内侧
+    · 两个锚点靠得很近 → 卡片自动往下让，不叠在一起
+  不参与打包，仅本地排查用。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      /* Obsidian 主题变量的替身 */
+      :root {
+        --background-primary: #ffffff;
+        --background-secondary: #f2f3f5;
+        --background-primary-alt: #fafafa;
+        --background-modifier-border: #d8d8d8;
+        --background-modifier-hover: #ececec;
+        --text-normal: #1f1f1f;
+        --text-muted: #666;
+        --text-faint: #999;
+        --text-error: #c0392b;
+        --interactive-accent: #7c5cff;
+        --interactive-accent-hover: #6b4cf0;
+        --text-on-accent: #fff;
+        --font-ui-small: 13px;
+        --font-ui-smaller: 12px;
+        --font-monospace: monospace;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .host {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .host-header {
+        height: 30px;
+        background: #fafafa;
+        border-bottom: 1px solid #ddd;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        color: #666;
+        flex: 0 0 auto;
+      }
+      .host-body {
+        flex: 1 1 auto;
+        display: flex;
+        min-height: 0;
+      }
+      .pdfa-shell {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      /* 假页面：只保留真实页面的尺寸与底色，正文用几条灰线代替 */
+      .fake-text {
+        position: absolute;
+        inset: 40px 46px;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #dcdcdc 0 8px,
+          transparent 8px 20px
+        );
+        opacity: 0.85;
+      }
+      .fake-hl {
+        position: absolute;
+        background: rgba(245, 197, 66, 0.42);
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="host">
+      <div class="host-header">Obsidian 内容区替身（1,400 × 800）</div>
+      <div class="host-body">
+        <div class="pdfa-shell">
+          <div class="pdfa-body">
+            <div class="pdfa-scroller" id="scroller">
+              <div class="pdfa-pages">
+                <div class="pdfa-page" data-page="1" style="width: 700px; height: 990px">
+                  <div class="fake-text"></div>
+                  <div class="fake-hl" style="left: 60px; top: 118px; width: 320px; height: 14px"></div>
+                  <div class="fake-hl" style="left: 60px; top: 148px; width: 280px; height: 14px"></div>
+                  <div class="fake-hl" style="left: 60px; top: 698px; width: 340px; height: 14px"></div>
+                </div>
+                <div class="pdfa-page" data-page="2" style="width: 700px; height: 990px">
+                  <div class="fake-text"></div>
+                  <div class="fake-hl" style="left: 60px; top: 298px; width: 300px; height: 14px"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="./cards-check.js"></script>
+  </body>
+</html>

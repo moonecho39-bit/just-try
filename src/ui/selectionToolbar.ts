@@ -21,6 +21,7 @@ import { h, placeFloating, type RectLike } from "../dom";
 export type ToolbarAction =
   | "highlight"
   | "underline"
+  | "annotate"
   | "rect"
   | "arrow"
   | "note"
@@ -48,6 +49,12 @@ interface BtnSpec {
 const BUTTONS: BtnSpec[] = [
   { action: "highlight", icon: "highlighter", label: "高亮" },
   { action: "underline", icon: "underline", label: "下划线" },
+  /*
+   * 批注：一步到位 —— 高亮这段文字 + 在旁边立一张卡片 + 直接打开编辑器。
+   * 放在高亮右边而不是更靠后：用户的心智是"我要给这段写点东西"，
+   * 而它必须从一段选中的文字开始，所以紧挨着高亮最容易被找到。
+   */
+  { action: "annotate", icon: "message-square", label: "批注：高亮这段文字并写批注" },
   { action: "rect", icon: "square", label: "矩形框（拖拽绘制）", divider: true },
   { action: "arrow", icon: "arrow-up-right", label: "箭头（拖拽绘制）" },
   { action: "note", icon: "sticky-note", label: "便签" },

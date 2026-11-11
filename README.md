@@ -45,6 +45,24 @@ protocol, and a community plugin ships as three files. So all 168 `.bcmap` files
 into `main.js` (1.6 MB → 3.2 MB) and served by `EmbeddedCMapReaderFactory`. Regenerate with
 `node scripts/gen-cmaps.mjs`.
 
+### Blank page + `0 / 0` in Obsidian's own viewer
+
+First identify whose viewer it is: a single toolbar row with a magnifier is **Obsidian's native
+viewer**; a "PDF 批注" title plus a full row of drawing tools is this plugin. Most blank pages are
+the former, and no plugin can reach it.
+
+One confirmed cause is a **dirty trailer**: CNKI's downloader appends a `WebFastLoad` XML blob
+(DOI, file name) *after* the last `%%EOF`. Parsers that scan backwards from EOF for `startxref`
+find that junk instead and give up.
+
+```
+%%EOF
+WebFastLoad<FileProperty><Doi>10.16149/…</Doi>…   ← these 177 bytes break it
+```
+
+The **“诊断 PDF 尾部垃圾并生成修复版”** command reads the selected PDF, counts non-blank bytes
+after the last `%%EOF`, and writes a `…（修复版）.pdf` copy. It never modifies the original.
+
 ### Annotate without replacing the viewer
 - Opt-in "annotator view" (command, ribbon icon, or a link click) — `registerExtensions` is
   **not** called by default, so double-clicking a PDF still opens Obsidian's native viewer.
@@ -106,6 +124,31 @@ block anchor — not inside the link:
 
 The pin on the PDF page points at `^pdfa-note-a1b2c3`; the callout's first line points back at the
 PDF. Two symmetric, ordinary links — nothing proprietary.
+
+### Visible annotation cards
+
+A highlight is easy to forget about. Select text and hit **annotate** (`message-square` in the
+selection toolbar) — or right-click an existing highlight → **添加批注…** — and the highlight turns
+into a note with a card in the page margin, joined to the text by a dashed leader line:
+
+```
+┌────────────────────┐
+│ ● 批注 · p.2   ✎ ✕ │
+│ use this in the lit│   ← card sits in the margin, never over the text
+└────────────────────┘
+        ╲
+         ╲ dashed leader
+   ████████████  ← the highlighted line
+```
+
+Cards live in an overlay attached to the **scroll container**, not the page: `.pdfa-page` uses
+`overflow: hidden` + `contain: paint`, which would clip anything drawn outside the page box. When
+neither margin is wide enough (narrow pane, heavy zoom) the card falls back inside the page and the
+leader line is dropped — a line crossing the body text reads worse than no line.
+
+Under the hood it is still a single `NoteAnnotation` with an optional `rects` field: with `rects` it
+renders a highlight + card, without it you get the classic pin. Storage is unchanged, so no existing
+note needs migrating, and converting a highlight reuses the same id — one undo step, no orphan pin.
 
 ### Works on tablets
 A pointer adapter normalises mouse / pen / touch into one sample type and adds what touch screens
