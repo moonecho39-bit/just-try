@@ -1,6 +1,6 @@
 {
-  "name": "obsidian-pdf-annotator",
-  "version": "0.4.1",
+  "name": "obsidian-pdf-view",
+  "version": "0.5.0",
   "description": "Obsidian PDF annotation plugin (Markdown backlink based)",
   "author": "moonecho39-bit",
   "license": "MIT",

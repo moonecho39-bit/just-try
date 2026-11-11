@@ -83,7 +83,7 @@ export function assertConfigured(settings: AiSettings): void {
     throw new AiError(
       "还没填模型名",
       "config",
-      "打开「设置 → PDF Annotator → AI 伴读」，填一个模型名（例如 gpt-4o-mini 或 qwen2.5:7b）。",
+      "打开「设置 → PDF View → AI 伴读」，填一个模型名（例如 gpt-4o-mini 或 qwen2.5:7b）。",
     );
   }
   if (settings.provider === "openai" && !settings.apiKey.trim()) {

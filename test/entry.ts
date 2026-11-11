@@ -1127,7 +1127,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log("PDF Annotator — 冒烟测试");
+  console.log("PDF View — 冒烟测试");
   await testCoords();
   await testPdf();
   await testInk();

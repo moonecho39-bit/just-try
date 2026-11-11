@@ -1,5 +1,5 @@
 /* ==========================================================================
-   PDF Annotator — styles.css
+   PDF View — styles.css
    所有规则都收敛在 .pdf-annotator-view 之下（浮层另有 .pdfa-pop 前缀），
    绝不影响 Obsidian 原生 PDF 查看器与其它插件。
 
