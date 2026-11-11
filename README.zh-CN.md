@@ -24,7 +24,7 @@ pdf-annotator/
 │   ├── comment-check*.html 评论气泡四种状态核对页
 │   └── obsidian-stub.ts   `obsidian` 模块的最小替身
 ├── test/
-│   ├── entry.ts           [A]~[Q] 十七组冒烟测试
+│   ├── entry.ts           [A]~[R] 十八组冒烟测试
 │   ├── run.cjs            jsdom 宿主
 │   └── fixtures/sample.pdf
 └── src/
@@ -66,7 +66,7 @@ pdf-annotator/
 npm install --registry=https://registry.npmmirror.com
 npm run dev      # watch 模式
 npm run build    # 类型检查 + 生产构建
-npm test         # jsdom 冒烟测试：[A]~[Q] 十七组，300 项断言
+npm test         # jsdom 冒烟测试：[A]~[R] 十八组，307 项断言
 
 # 不启动 Obsidian 也能看绘制 / 回链 / 面板效果
 npx esbuild demo/entry.ts --bundle --format=iife \

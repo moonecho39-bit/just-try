@@ -480,6 +480,113 @@ function testPageLayer(): void {
   check("destroy 后 SVG 从 DOM 摘除", host.querySelector("svg") === null);
 }
 
+/**
+ * [R] 「点一下标记」的判定
+ *
+ * 这是新交互最脆的一环：同一次按下，可能是"点一下写评论"，
+ * 也可能是"从这里开始拖选文字"。判据只有两条 —— 位移、选区是否为空。
+ * 这两条错了，用户就会在拖选时被气泡打断，或者点了半天没反应。
+ */
+function testMarkTap(): void {
+  console.log("\n[R] 点一下标记 → 弹评论气泡");
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+
+  // jsdom 没有 PointerEvent：删掉它，走 mouse 兜底分支（pointerType 会被填成 "mouse"）
+  const win = window as unknown as Record<string, unknown>;
+  const originalPointerEvent = win.PointerEvent;
+  delete win.PointerEvent;
+
+  const geo: PageGeometry = { pageNumber: 1, baseWidth: 600, baseHeight: 800, scale: 1, rotation: 0 };
+  const tool = new ToolState();
+  const taps: string[] = [];
+  const opened: string[] = [];
+  const layer = new PageLayer(host, geo, tool, {
+    onCreate: () => undefined,
+    onPlaceNote: () => undefined,
+    onOpenNote: (a) => opened.push(a.id),
+    onMarkTap: (a) => taps.push(a.id),
+    onContextMenu: () => undefined,
+  });
+
+  // 高亮：NORM (0.1,0.1)-(0.3,0.12) → BASE (60,80)-(180,96)
+  const hl = mkHighlight("h1", 1);
+  // 带底纹的批注（高亮 + 评论）：NORM (0.5,0.5)-(0.7,0.52)，图钉在第一行右端
+  const note: NoteAnnotation = {
+    id: "n1",
+    kind: "note",
+    page: 1,
+    at: { x: 0.7, y: 0.51 },
+    body: "一条评论",
+    rects: [{ x: 0.5, y: 0.5, w: 0.2, h: 0.02 }],
+    opacity: 0.34,
+    mark: "highlight",
+    color: "#FFE066",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  layer.setAnnotations([hl, note]);
+
+  const down = (x: number, y: number): void => {
+    host.dispatchEvent(new window.MouseEvent("mousedown", { clientX: x, clientY: y, button: 0, bubbles: true }));
+  };
+  const up = (x: number, y: number): void => {
+    host.dispatchEvent(new window.MouseEvent("mouseup", { clientX: x, clientY: y, button: 0, bubbles: true }));
+  };
+  const click = (x: number, y: number): void => {
+    host.dispatchEvent(new window.MouseEvent("click", { clientX: x, clientY: y, button: 0, bubbles: true }));
+  };
+  const tap = (x: number, y: number): void => {
+    down(x, y);
+    up(x, y);
+    click(x, y);
+  };
+
+  // ① 干脆点一下高亮
+  tap(100, 88);
+  check("点高亮 → 弹气泡", taps.join(",") === "h1", taps);
+
+  // ② 从高亮上开始拖选：位移超过阈值，不能再弹
+  taps.length = 0;
+  down(100, 88);
+  host.dispatchEvent(new window.MouseEvent("mousemove", { clientX: 160, clientY: 120, bubbles: true }));
+  up(160, 120);
+  click(100, 88);
+  check("拖选文字 → 不弹气泡", taps.length === 0, taps);
+
+  // ③ 带底纹的批注：点底纹任意处都算（不是只有图钉）
+  taps.length = 0;
+  tap(330, 408);
+  check("点批注底纹 → 弹气泡", taps.join(",") === "n1", taps);
+
+  // ④ 点图钉：开富文本编辑器，并且不再叠一个气泡
+  taps.length = 0;
+  opened.length = 0;
+  tap(420, 408);
+  check("点图钉 → 开编辑器", opened.join(",") === "n1", opened);
+  check("点图钉 → 不再弹气泡", taps.length === 0, taps);
+
+  // ⑤ 空白处
+  taps.length = 0;
+  tap(560, 700);
+  check("点空白 → 什么也不弹", taps.length === 0, taps);
+
+  // ⑥ 非选择工具下不该抢点击（正在画东西）
+  tool.setActive("rect");
+  layer.refreshTool();
+  taps.length = 0;
+  tap(100, 88);
+  check("绘制工具激活时不弹气泡", taps.length === 0, taps);
+  tool.setActive("select");
+  layer.refreshTool();
+
+  layer.destroy();
+  host.remove();
+  if (originalPointerEvent) win.PointerEvent = originalPointerEvent;
+  else delete win.PointerEvent;
+}
+
 /* ------------------------------------------------------------------ *
  * G. 链接语法
  * ------------------------------------------------------------------ */
@@ -1409,6 +1516,7 @@ async function main(): Promise<void> {
   await testStore();
   await testGeometry();
   testPageLayer();
+  testMarkTap();
   testLinkFormat();
   await testTextIndex();
   await testScan();
