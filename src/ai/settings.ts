@@ -19,6 +19,15 @@ export type PluginSettings = {
   noteFolder: string;
   /** 便签备注文件命名后缀，默认 "pdf-notes" → `论文 (pdf-notes).md` */
   noteSuffix: string;
+  /**
+   * 是否让本插件接管 .pdf 的打开方式（双击 / 点链接直接进批注视图）。
+   *
+   * 默认 false —— 本项目的原则是不抢 Obsidian 原生查看器。但在原生查看器
+   * 打不开某些文件（只有空白页、页码 0/0）时，这是唯一能让用户继续读下去
+   * 的开关，所以留一个显式的、可随时关掉的入口。
+   * 注意：改变这个值需要重启 Obsidian 才生效（扩展名注册在启动时做）。
+   */
+  openPdfInPlugin: boolean;
 };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -26,6 +35,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   noteLocation: "source",
   noteFolder: "PDF 批注",
   noteSuffix: "pdf-notes",
+  openPdfInPlugin: false,
 };
 
 export async function loadSettings(plugin: Plugin): Promise<PluginSettings> {
@@ -67,6 +77,7 @@ export function sanitizeSettings(raw: unknown): PluginSettings {
     noteLocation: root.noteLocation === "folder" ? "folder" : "source",
     noteFolder: str(root.noteFolder, DEFAULT_SETTINGS.noteFolder).replace(/^\/+|\/+$/g, "") || DEFAULT_SETTINGS.noteFolder,
     noteSuffix: str(root.noteSuffix, DEFAULT_SETTINGS.noteSuffix).trim() || DEFAULT_SETTINGS.noteSuffix,
+    openPdfInPlugin: bool(root.openPdfInPlugin, DEFAULT_SETTINGS.openPdfInPlugin),
   };
 }
 

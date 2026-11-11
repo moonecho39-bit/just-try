@@ -185,9 +185,17 @@ export default class PdfAnnotatorPlugin extends Plugin {
     }
 
     /*
-     * 刻意**不**调用 registerExtensions(["pdf"], PDF_VIEW_TYPE)
+     * 默认**不**调用 registerExtensions(["pdf"], PDF_VIEW_TYPE)
      * 见文件头注释：那等于替换原生查看器，违背本项目第一原则。
+     *
+     * 唯一的例外是用户在设置里显式勾选「接管 .pdf 打开方式」。理由是真实
+     * 场景里遇到过原生查看器读不了的 PDF（只有空白页、页码 0/0），这时若
+     * 不给出口，用户就只能把文件拖到别的软件里看 —— 那是插件的失职。
+     * 开关默认关，且随时能关回去（改完需重启 Obsidian）。
      */
+    if (this.settings.openPdfInPlugin) {
+      this.registerExtensions(["pdf"], PDF_VIEW_TYPE);
+    }
 
     // 一行日志：出问题时让用户能在控制台（Ctrl+Shift+I）确认到底加载了没有
     console.info(`[PDF View] v${this.manifest.version} loaded · vault=${this.app.vault.getName()}`);

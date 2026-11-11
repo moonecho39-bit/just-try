@@ -88,6 +88,7 @@ import {
 } from "../src/note/noteFormat";
 import { attachPointer } from "../src/ui/pointer";
 import { applyTransform } from "../src/link/textIndex";
+import { DEFAULT_SETTINGS, sanitizeSettings } from "../src/ai/settings";
 
 let failed = 0;
 
@@ -864,6 +865,28 @@ function testAiProtocol(): void {
  * [L] 便签格式
  * ================================================================== */
 
+function testSettings(): void {
+  console.log("\n[N] 设置清洗：缺字段 / 类型错 / 旧版本文件都不能让插件起不来");
+
+  const empty = sanitizeSettings(null);
+  check("空 data.json 回落到默认值", empty.openPdfInPlugin === DEFAULT_SETTINGS.openPdfInPlugin);
+  check("默认不接管 .pdf 打开方式", empty.openPdfInPlugin === false);
+  check("AI 设定有默认 provider", empty.ai.provider === "openai");
+  check("未知 provider 被夹到 openai", sanitizeSettings({ ai: { provider: "gpt-9" } }).ai.provider === "openai");
+
+  check("openPdfInPlugin=true 被保留", sanitizeSettings({ openPdfInPlugin: true }).openPdfInPlugin === true);
+  // 手改 data.json 写成字符串 "true" 是很常见的事故，必须当假值处理而不是真值
+  check(
+    "openPdfInPlugin 为字符串时回落 false",
+    sanitizeSettings({ openPdfInPlugin: "true" }).openPdfInPlugin === false
+  );
+  check("temperature 越界被 clamp", sanitizeSettings({ ai: { temperature: 9 } }).ai.temperature === 2);
+  check(
+    "noteFolder 去掉首尾斜杠",
+    sanitizeSettings({ noteFolder: "/PDF 批注/" }).noteFolder === "PDF 批注"
+  );
+}
+
 function testNoteFormat(): void {
   console.log("\n[L] 便签格式：Callout + 块锚点往返");
 
@@ -1140,6 +1163,7 @@ async function main(): Promise<void> {
   testBacklinkLayer();
   testAiProtocol();
   testNoteFormat();
+  testSettings();
   await testPointer();
   console.log(failed === 0 ? "\n全部通过 ✅" : `\n${failed} 项失败 ❌`);
   if (failed > 0) process.exit(1);

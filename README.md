@@ -30,9 +30,25 @@ A highlight is a link. A note is a callout. A backlink is a query. That's the wh
 
 ## Features
 
+### Works with CJK PDFs that other viewers blank out
+Chinese journal PDFs (CNKI, Wanfang) typically use `GBK-EUC-H` / `UniGB-UCS2-H` double-byte
+encodings **with non-embedded fonts**. pdf.js cannot map those codes to glyphs without a CMap
+table, and it fails silently — digits and punctuation render, every Chinese character vanishes:
+
+| | text items | CJK chars |
+|---|---|---|
+| without CMap | 238 | 0 |
+| with CMap | 429 | 1422 |
+
+The usual fix is a `cMapUrl` for pdf.js to `fetch`. That doesn't work under Obsidian's `app://`
+protocol, and a community plugin ships as three files. So all 168 `.bcmap` files are base64-inlined
+into `main.js` (1.6 MB → 3.2 MB) and served by `EmbeddedCMapReaderFactory`. Regenerate with
+`node scripts/gen-cmaps.mjs`.
+
 ### Annotate without replacing the viewer
 - Opt-in "annotator view" (command, ribbon icon, or a link click) — `registerExtensions` is
-  deliberately **not** called, so double-clicking a PDF still opens Obsidian's native viewer.
+  **not** called by default, so double-clicking a PDF still opens Obsidian's native viewer.
+  There is a single opt-in setting to take over `.pdf` for the rare file the native viewer can't open.
 - Highlight, underline, rectangle, arrow, pencil, marker, sticky note — all drawn on a per-page SVG
   layer whose `viewBox` is the page's pt size, so annotations stay pixel-exact at any zoom with zero
   recomputation.

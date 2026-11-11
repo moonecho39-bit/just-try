@@ -1,6 +1,6 @@
 {
   "name": "obsidian-pdf-view",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Obsidian PDF annotation plugin (Markdown backlink based)",
   "author": "moonecho39-bit",
   "license": "MIT",
@@ -29,8 +29,9 @@
     "build": "npm run typecheck && node esbuild.config.mjs production",
     "typecheck": "tsc -noEmit -skipLibCheck",
     "pretest": "esbuild test/entry.ts --bundle --platform=node --format=cjs --outfile=test/_bundle.cjs --log-level=warning --external:obsidian --external:canvas",
-    "test": "node test/run.cjs && node test/load-smoke.cjs",
-    "test:load": "node test/load-smoke.cjs"
+    "test": "node test/run.cjs && node test/load-smoke.cjs && node test/cmaps-smoke.cjs",
+    "test:load": "node test/load-smoke.cjs",
+    "test:cmaps": "node test/cmaps-smoke.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

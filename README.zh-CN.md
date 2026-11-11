@@ -454,6 +454,25 @@ click(document,true) → 捕获阶段拦截 internal-link
 | 翻译目标语言 | auto = 中文选段译成英文、其它译成中文 |
 | 流式输出 | 见下 |
 | 附带原文引用 | 插入时是否带 `> > 原文` |
+| 用本插件打开 .pdf | 默认关。开了才抢 Obsidian 原生查看器，用于原生查看器打不开某些文件时兜底 |
+
+## 中文 PDF 为什么需要内嵌 CMap
+
+知网、万方这类中文期刊 PDF 普遍满足两个条件：字体编码是 `GBK-EUC-H` / `UniGB-UCS2-H` 这类
+双字节 CMap，**且字体不嵌入**。pdf.js 必须靠外部 CMap 表才能把编码映射成字符：
+
+| 条件 | 文本项 | 汉字 | 结果 |
+|---|---|---|---|
+| 无 CMap | 238 | 0 | 只剩数字与标点，看起来像乱码 |
+| 有 CMap | 429 | 1422 | 正常 |
+
+pdf.js 官方做法是给 `cMapUrl` 让它去 `fetch`，但 Obsidian 跑在 `app://` 协议下没有可用的静态
+资源地址，而且社区插件只分发三个文件。所以这里把整张表（168 个 `.bcmap`，原始 1.1 MB）
+base64 后编进 `main.js`，由 `EmbeddedCMapReaderFactory` 在 `fetch()` 里直接返回字节。
+
+代价是 `main.js` 从 1.6 MB 涨到 3.2 MB；换来的是离线可用、零外部依赖、不会因为漏拷一个
+目录就整片中文消失。改表：`node scripts/gen-cmaps.mjs`（从 `node_modules/pdfjs-dist/cmaps` 重生成）。
+
 
 「测试连接」会发一个 `max_tokens=1` 的真实请求，把 401 / 404 / 网络错误翻译成人话 ——
 比让用户去控制台看 CORS 报错有用得多。

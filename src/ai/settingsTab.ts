@@ -252,6 +252,35 @@ export class PdfAnnotatorSettingTab extends PluginSettingTab {
           await this.host.saveSettings();
         }),
       );
+
+    /* ============================ 打开方式 ============================ */
+    new Setting(containerEl).setName("打开方式").setHeading();
+
+    containerEl.createEl("p", {
+      cls: "pdfa-settings-lead",
+      text:
+        "默认不动 Obsidian 自带的 PDF 查看器：本插件是从命令面板或侧边栏按需打开的批注视图。" +
+        "如果原生查看器打不开某些 PDF（只有空白页、页码显示 0 / 0），可以在这里让本插件接管。",
+    });
+
+    new Setting(containerEl)
+      .setName("用本插件打开 .pdf 文件")
+      .setDesc(
+        "开启后，双击文件列表里的 PDF 会直接进批注视图；关闭则回到原生查看器。" +
+          "改动需要重启 Obsidian 才生效（Ctrl+R 或退出重开）。",
+      )
+      .addToggle((t) =>
+        t.setValue(this.host.settings.openPdfInPlugin).onChange(async (v) => {
+          this.host.settings.openPdfInPlugin = v;
+          await this.host.saveSettings();
+          new Notice(
+            v
+              ? "已开启接管 .pdf。重启 Obsidian 后生效；若原生查看器本来正常，建议关掉这一项。"
+              : "已关闭接管 .pdf。重启 Obsidian 后恢复原生查看器。",
+            6000,
+          );
+        }),
+      );
   }
 
   /* ------------------------------------------------------------------ */

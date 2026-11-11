@@ -20,6 +20,7 @@ import "pdfjs-dist/legacy/build/pdf.worker.entry";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { PageGeometry } from "./coords";
 import type { PdfTextContentLike } from "./link/textIndex";
+import { EmbeddedCMapReaderFactory } from "./pdf/cmapFactory";
 
 type PageViewportLike = ReturnType<PDFPageProxy["getViewport"]>;
 type RenderTaskLike = ReturnType<PDFPageProxy["render"]>;
@@ -92,10 +93,23 @@ export class PDFRenderer {
       data: bytes,
       // 关键：关掉 eval，Obsidian 的 CSP 不允许 new Function
       isEvalSupported: false,
-      // 不依赖系统字体外的额外资源；CJK 的 cmaps 阶段二再补
       useSystemFonts: true,
       disableFontFace: false,
-    });
+      /*
+       * CJK 的 CMap 表。
+       *
+       * 中文期刊 PDF（知网、万方）普遍用 GBK-EUC-H / UniGB-UCS2-H 这类双字节
+       * 编码，而且**字体不嵌入**。pdf.js 必须靠这张表才能把编码映射到字形，
+       * 缺表时它不报错，只是中文整片消失、剩下数字和标点——用户看到的
+       * 就是「乱码」。
+       *
+       * 官方做法是给 cMapUrl 让它去 fetch，但 Obsidian 的 app:// 协议下
+       * 没有可用的静态资源地址，且社区插件只分发三个文件。所以这里换成
+       * 内嵌表：CMap 内容随 main.js 一起走，离线、零外部依赖。
+       */
+      cMapPacked: true,
+      CMapReaderFactory: EmbeddedCMapReaderFactory,
+    } as Parameters<typeof pdfjsLib.getDocument>[0]);
 
     this.doc = await loadingTask.promise;
     return this.doc.numPages;
