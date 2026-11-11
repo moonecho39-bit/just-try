@@ -153,8 +153,10 @@ export default class PdfAnnotatorPlugin extends Plugin {
           `PDF View for Obsidian v${this.manifest.version}`,
           `当前库：${this.app.vault.getName()}`,
           `批注视图：${view ? "已打开" : "未打开"}`,
+          `接管 .pdf：${this.settings.openPdfInPlugin ? "开" : "关"}`,
+          ...this.describeStyles(),
         ];
-        new Notice(lines.join("\n"), 6000);
+        new Notice(lines.join("\n"), 8000);
         console.info("[PDF View]", lines.join(" | "));
       },
     });
@@ -192,13 +194,50 @@ export default class PdfAnnotatorPlugin extends Plugin {
      * 场景里遇到过原生查看器读不了的 PDF（只有空白页、页码 0/0），这时若
      * 不给出口，用户就只能把文件拖到别的软件里看 —— 那是插件的失职。
      * 开关默认关，且随时能关回去（改完需重启 Obsidian）。
+     *
+     * 两条路一起走，因为 registerExtensions 对 "pdf" 这种内置类型不保证生效：
+     * ① 注册默认视图 —— 有的版本/主题下会被核心插件盖掉；
+     * ② 监听 file-open 兜底 —— 发现当前 leaf 打开的是原生 PDF 视图，
+     *    就地把它 setViewState 成我们的视图（同一个 leaf，不会多开标签）。
      */
     if (this.settings.openPdfInPlugin) {
-      this.registerExtensions(["pdf"], PDF_VIEW_TYPE);
+      try {
+        this.registerExtensions(["pdf"], PDF_VIEW_TYPE);
+      } catch (err) {
+        console.warn("[PDF View] registerExtensions 失败，改用 file-open 兜底", err);
+      }
+      this.registerEvent(this.app.workspace.on("file-open", (file) => this.maybeRedirectPdf(file)));
     }
 
     // 一行日志：出问题时让用户能在控制台（Ctrl+Shift+I）确认到底加载了没有
     console.info(`[PDF View] v${this.manifest.version} loaded · vault=${this.app.vault.getName()}`);
+  }
+
+  /** 重定向冷却到什么时候（毫秒时间戳），防止 setViewState 再触发 file-open 形成回环 */
+  private redirectUntil = 0;
+
+  /**
+   * 接管 .pdf 的兜底：把"刚被原生查看器打开"的 leaf 就地换成批注视图。
+   *
+   * 为什么不用 `registerExtensions` 一条路走到底：Obsidian 对 pdf 这类内置
+   * 扩展名有核心视图，插件的注册可能被覆盖（实测 1.15 上就没生效），而
+   * `setViewState` 是确定有效的。
+   */
+  private maybeRedirectPdf(file: TFile | null): void {
+    if (!this.settings.openPdfInPlugin) return;
+    if (!file || !(file instanceof TFile) || file.extension !== "pdf") return;
+    if (Date.now() < this.redirectUntil) return;
+
+    const leaf = this.app.workspace.activeLeaf ?? this.app.workspace.getMostRecentLeaf?.() ?? null;
+    if (!leaf) return;
+    // 已经是我们的视图（或用户手动切过来的），不动
+    if (leaf.view.getViewType() === PDF_VIEW_TYPE) return;
+
+    this.redirectUntil = Date.now() + 1000;
+    void this.openPdf(file, leaf).catch((err) => {
+      console.error("[PDF View] 切换到批注视图失败", err);
+      new Notice("切换到批注视图失败，已保留原生查看器。详情见控制台（Ctrl+Shift+I）。");
+    });
   }
 
   /**
@@ -227,6 +266,39 @@ export default class PdfAnnotatorPlugin extends Plugin {
   }
 
   /* ------------------------------------------------------------------ */
+
+  /**
+   * 自检样式是否真的生效。
+   *
+   * 起因：有过一次「工具栏竖着堆成一列」的现场，排查发现是插件的 styles.css
+   * 根本没被加载（页面完全用 Obsidian 默认样式）。这种事在界面上很难自证，
+   * 于是把「样式表在不在 → 容器算出来的 display 是什么」直接打到弹窗里。
+   */
+  private describeStyles(): string[] {
+    const loaded = Array.from(document.styleSheets).some((sheet) => {
+      const href = sheet.href ?? "";
+      return href.includes("pdf-annotator") || href.includes(this.manifest.id);
+    });
+
+    const shell = document.querySelector(".pdfa-shell");
+    if (!shell) {
+      return [`样式表：${loaded ? "已加载" : "未加载"}`, "布局壳：当前无（先打开一次批注视图再看）"];
+    }
+
+    const cs = getComputedStyle(shell);
+    const bar = shell.querySelector<HTMLElement>(".pdfa-toolbar");
+    const barInfo = bar
+      ? (() => {
+          const b = getComputedStyle(bar);
+          return `${b.display} / ${b.flexDirection} / 宽 ${Math.round(bar.getBoundingClientRect().width)}px`;
+        })()
+      : "无";
+    return [
+      `样式表：${loaded ? "已加载" : "未加载"}`,
+      `布局壳 display：${cs.display} / ${cs.flexDirection}`,
+      `工具栏 display：${barInfo}`,
+    ];
+  }
 
   private getActivePdfFile(): TFile | null {
     const file = this.app.workspace.getActiveFile();

@@ -1,0 +1,147 @@
+<!doctype html>
+<!--
+  布局复现页：只复制 Obsidian 里最关键的那层容器 + 本插件 view 的真实 DOM 结构，
+  用来在真实 Chromium 里验证 styles.css 是否真的把工具栏排成一行。
+  不参与打包，仅本地排查用：msedge --headless --screenshot=... demo/layout-check.html
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      /* Obsidian 主题变量的替身，够看清结构就行 */
+      :root {
+        --background-primary: #ffffff;
+        --background-secondary: #f2f3f5;
+        --background-primary-alt: #fafafa;
+        --background-modifier-border: #d8d8d8;
+        --background-modifier-hover: #ececec;
+        --text-normal: #1f1f1f;
+        --text-muted: #666;
+        --text-faint: #999;
+        --text-error: #c0392b;
+        --interactive-accent: #7c5cff;
+        --interactive-accent-hover: #6b4cf0;
+        --text-on-accent: #fff;
+        --font-ui-small: 13px;
+        --font-ui-smaller: 12px;
+        --font-monospace: monospace;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: "Microsoft YaHei", system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        height: 100vh;
+      }
+      .sidebar {
+        width: 140px;
+        background: #e9eaec;
+        font-size: 12px;
+        padding: 6px;
+        box-sizing: border-box;
+      }
+      .workspace-leaf-content {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .view-header {
+        height: 34px;
+        background: #fafafa;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        font-size: 13px;
+      }
+      /* Obsidian 对 .view-content 的基线 */
+      .view-content {
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+      /* 故意模拟各种"宿主环境不听话"的情况，用 ?hostile 打开：
+         ① Obsidian 把 .view-content 设成 row flex（真实翻车现场）
+         ② 主题给 .pdf-annotator-view 派 !important 级别的 row 方向 */
+      body.hostile .view-content {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-start;
+      }
+      body.hostile .pdf-annotator-view {
+        display: flex !important;
+        flex-direction: row !important;
+      }
+      .fake-page {
+        width: 744px;
+        height: 520px;
+        background: #fff;
+        border: 1px solid #ccc;
+      }
+      button {
+        font-size: 12px;
+        padding: 2px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar">文件列表<br />daily<br />idea<br />读书笔记</div>
+    <div class="workspace-leaf-content">
+      <div class="view-header">PDF 批注</div>
+      <div class="view-content pdf-annotator-view" id="root"></div>
+    </div>
+
+    <script>
+      const tools = ["▷", "✎", "▁", "□", "→", "◻", "✏", "🖍"];
+      const root = document.getElementById("root");
+      root.innerHTML = `
+        <div class="pdfa-shell">
+        <div class="pdfa-toolbar">
+          <div class="pdfa-title">健康需求与协同治理：分级诊疗制度建设实践逻辑</div>
+          <div class="pdfa-group">
+            <button class="pdfa-icon-btn">‹</button>
+            <input class="pdfa-page-input" value="1" />
+            <div class="pdfa-page-total">/15</div>
+            <button class="pdfa-icon-btn">›</button>
+          </div>
+          <div class="pdfa-sep"></div>
+          <div class="pdfa-group">
+            <button class="pdfa-icon-btn">−</button>
+            <div class="pdfa-zoom-label">125%</div>
+            <button class="pdfa-icon-btn">+</button>
+            <button class="pdfa-icon-btn">↔</button>
+            <button class="pdfa-icon-btn">⤢</button>
+          </div>
+          <div class="pdfa-sep"></div>
+          <div class="pdfa-group pdfa-tools">
+            ${tools.map((t) => `<button class="pdfa-icon-btn pdfa-tool-btn">${t}</button>`).join("")}
+          </div>
+          <div class="pdfa-sep"></div>
+          <div class="pdfa-group">
+            <button class="pdfa-icon-btn">↶</button>
+            <button class="pdfa-icon-btn">↷</button>
+          </div>
+          <div class="pdfa-sep"></div>
+          <div class="pdfa-group">
+            <button class="pdfa-icon-btn">🔗3</button>
+            <button class="pdfa-icon-btn">✨</button>
+          </div>
+          <div class="pdfa-toolbar-hint">Esc 退出工具</div>
+        </div>
+        <div class="pdfa-body">
+          <div class="pdfa-scroller">
+            <div class="pdfa-pages">
+              <div class="pdfa-page"><div class="fake-page"></div></div>
+            </div>
+          </div>
+        </div>
+        </div>`;
+
+      if (location.search.includes("hostile")) document.body.classList.add("hostile");
+    </script>
+  </body>
+</html>

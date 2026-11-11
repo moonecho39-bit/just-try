@@ -184,6 +184,8 @@ export class PDFFileView extends ItemView {
 
   private titleEl!: HTMLElement;
   private zoomLabelEl!: HTMLElement;
+  /** 自建布局壳（.pdfa-shell），见 onOpen 里的说明 */
+  private shellEl!: HTMLElement;
   /** 页码输入框与「/ 总页」标签（工具栏组 1） */
   private pageInputEl!: HTMLInputElement;
   private pageTotalEl!: HTMLElement;
@@ -308,12 +310,23 @@ export class PDFFileView extends ItemView {
     root.empty();
     root.addClass("pdf-annotator-view");
 
-    this.buildToolbar(root);
+    /*
+     * 布局壳：所有样式挂在 .pdfa-shell 上，而不是 Obsidian 给的 contentEl。
+     *
+     * contentEl 同时带着 `.view-content` 类，它的 display / flex-direction
+     * 由 Obsidian 版本与主题决定。曾经出现过工具栏被压成一列、按钮竖着堆的
+     * 现场：那一层被改成了 row flex，我们挂在 contentEl 上的 column 规则打不过它。
+     * 自己建一层，规则就只受自己控制。
+     */
+    const shell = root.createDiv({ cls: "pdfa-shell" });
+    this.shellEl = shell;
+
+    this.buildToolbar(shell);
 
     // 横向两栏：左滚动区 + 右反向链接面板。
     // 面板常驻 DOM、用 class 控制显隐（`.is-open`），而不是增删节点 ——
     // 增删会让 scrollTop / hover 状态在开关面板时全部丢失。
-    const body = root.createDiv({ cls: "pdfa-body" });
+    const body = shell.createDiv({ cls: "pdfa-body" });
     this.scrollerEl = body.createDiv({ cls: "pdfa-scroller" });
     this.pagesEl = this.scrollerEl.createDiv({ cls: "pdfa-pages" });
 
