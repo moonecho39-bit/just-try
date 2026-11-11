@@ -1,4 +1,4 @@
-# PDF View
+# PDF View for Obsidian
 
 **Annotate PDFs in Obsidian without giving up the native viewer, the PDF file, or plain Markdown.**
 
@@ -16,7 +16,7 @@ Most PDF plugins pick one of two dead ends: they take over the viewer (so you lo
 PDF handling and get a second-class reading experience), or they keep annotations in a private
 sidecar file (so your highlights die with the plugin).
 
-PDF View takes a third path:
+PDF View for Obsidian takes a third path:
 
 ```
 PDF file        ← never modified
@@ -100,7 +100,7 @@ pinch-zoom doesn't draw a stray line).
 
 ## Comparison
 
-| | **PDF View** | **PDF++** | **Annotator** |
+| | **PDF View for Obsidian** | **PDF++** | **Annotator** |
 |---|---|---|---|
 | Annotation storage | Plain Markdown links, no sidecar | Plain Markdown links | Sidecar data file next to the PDF |
 | Link syntax | PDF++-compatible (`page` / `selection` / `rect` / `color`) | Its own, same four parameters | Plugin-private |
@@ -124,7 +124,7 @@ pinch-zoom doesn't draw a stray line).
 ### From a release
 Download `main.js`, `manifest.json` and `styles.css` from the
 [latest release](https://github.com/moonecho39-bit/just-try/releases/latest) into
-`<vault>/.obsidian/plugins/pdf-annotator/`, then enable **PDF View** in
+`<vault>/.obsidian/plugins/pdf-annotator/`, then enable **PDF View for Obsidian** in
 *Settings → Community plugins*.
 
 ### Via BRAT (auto-updating)
@@ -164,7 +164,7 @@ npm run build          # typecheck + production bundle
 
 ## AI setup
 
-*Settings → PDF View → AI companion*
+*Settings → PDF View for Obsidian → AI companion*
 
 | Provider | Base URL | Model example | API key |
 |---|---|---|---|

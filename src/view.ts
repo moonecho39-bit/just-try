@@ -1631,7 +1631,7 @@ export class PDFFileView extends ItemView {
   async runAiTask(task: AiTask): Promise<void> {
     if (!this.filePath) return;
     if (!this.plugin.settings.ai.model.trim()) {
-      new Notice("还没配置 AI 模型：设置 → PDF View → AI 伴读");
+      new Notice("还没配置 AI 模型：设置 → PDF View for Obsidian → AI 伴读");
       return;
     }
 
@@ -1660,7 +1660,7 @@ export class PDFFileView extends ItemView {
   private async runAiTaskForAnnotation(task: AiTask, anno: Annotation): Promise<void> {
     if (!this.filePath) return;
     if (!this.plugin.settings.ai.model.trim()) {
-      new Notice("还没配置 AI 模型：设置 → PDF View → AI 伴读");
+      new Notice("还没配置 AI 模型：设置 → PDF View for Obsidian → AI 伴读");
       return;
     }
     const built = await this.linkForAnnotation(anno);

@@ -1,4 +1,4 @@
-# PDF View（阶段一~六：批注 · 链接 · AI 伴读 · 富文本便签 · 移动端）
+# PDF View for Obsidian（阶段一~六：批注 · 链接 · AI 伴读 · 富文本便签 · 移动端）
 
 > 英文版（发布用）见 [README.md](./README.md)。
 

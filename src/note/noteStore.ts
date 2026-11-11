@@ -98,7 +98,7 @@ export class NoteFileStore {
     const title = (pdfPath.split("/").pop() ?? "PDF").replace(/\.pdf$/i, "");
     const header =
       `# ${title} · 便签\n\n` +
-      "> 本文件由 PDF View 自动维护：每条便签是一个 Callout，\n" +
+      "> 本文件由 PDF View for Obsidian 自动维护：每条便签是一个 Callout，\n" +
       "> 末尾的 `^pdfa-note-…` 是 PDF 上那枚图钉要跳的锚点。删掉 Callout 就等于删掉便签。\n";
     await this.opts.app.vault.create(path, header);
     return header;
