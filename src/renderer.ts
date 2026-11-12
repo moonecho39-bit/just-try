@@ -189,19 +189,31 @@ export class PDFRenderer {
     const cssW = Math.floor(viewport.width);
     const cssH = Math.floor(viewport.height);
 
+    /*
+     * 同页有未完成的渲染任务时先取消 —— 必须在改 canvas 尺寸**之前**。
+     * pdf.js 的 cancel 是异步生效的：先把它叫停，再动画布，
+     * 否则旧任务会继续往"已经换了尺寸的画布"上画，出来是一片撕开的色块。
+     */
+    this.cancelPage(pageNumber);
+
     /* --- Canvas：像素尺寸 = CSS 尺寸 × dpr --- */
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
     canvas.width = Math.max(1, Math.floor(cssW * dpr));
     canvas.height = Math.max(1, Math.floor(cssH * dpr));
 
-    const ctx = canvas.getContext("2d", { alpha: false });
+    /*
+     * 必须是 alpha: true。
+     * alpha: false 的画布是"不透明"的：一旦 width/height 被重置（改尺寸 =
+     * 丢弃整张位图），在下一次真正绘制之前浏览器把它当成**纯黑**填充。
+     * 缩放时那几十毫秒的黑屏就是从这来的；如果这一帧因为竞态没补上，
+     * 黑就会一直留着（用户的"持续黑屏"）。
+     * 用透明画布，未绘制的部分透出 .pdfa-page 的白底，最坏也只是白屏一下。
+     */
+    const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) throw new Error("[pdf-annotator] 无法获取 2D 上下文");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 同页有未完成的渲染任务时先取消，避免两帧叠加导致的画面撕裂
-    this.cancelPage(pageNumber);
 
     const task = page.render({
       canvasContext: ctx,

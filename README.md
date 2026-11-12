@@ -228,6 +228,29 @@ It does one thing: `collapse()` on `workspace.leftSplit` / `rightSplit`, plus a 
 was open before is restored — a sidebar you had collapsed yourself stays collapsed. Closing the PDF
 tab restores the layout too.
 
+### Black page while zooming (fixed in 0.9.2)
+
+Symptom: Ctrl+wheel zooming in annotation mode occasionally turns the whole page black — and it
+**stays** black until you scroll.
+
+Two things had to line up:
+
+1. **The canvas was created with `alpha: false`.** An opaque canvas is defined to be filled with
+   **black** whenever its bitmap is dropped (`canvas.width = ...` counts) and no frame has been
+   painted yet. Measured in headless Edge: `alpha:false` + reset bitmap → solid black; the same
+   sequence with `alpha:true` → transparent. It is now a transparent canvas, so an unpainted pixel
+   shows the white `.pdfa-page` behind it — worst case one white frame.
+2. **Zooming threw the bitmap away** (`canvas.width = 0`) while repaints hung off the `scroll` event.
+   After a zoom the scroll anchor usually lands on the *same* `scrollTop`, no scroll event fires, so
+   nothing ever repainted the page. Zoom no longer discards the bitmap: the old frame is kept and
+   stretched via CSS (a little soft for a moment), then replaced by the sharp one — same feel as
+   Chrome's built-in viewer. `setScale()` also calls `refreshVisible()` itself instead of waiting for
+   a scroll.
+
+There was also a race: if you zoomed while a page was mid-render, that stale frame used to be marked
+`done`, leaving the page on the old bitmap forever. Each render now records `wantScale` and, if the
+scale moved on, drops the frame, goes back to `idle` and re-queues.
+
 ### Never hijacks a sidebar (fixed in 0.8.1)
 
 The "open .pdf with this plugin" fallback used to call `setViewState` on `workspace.activeLeaf`

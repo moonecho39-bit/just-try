@@ -287,6 +287,9 @@
   display: block;
   position: relative;
   z-index: 0;
+  /* 兜底：画布是透明画布，未绘制的像素透出这层白，
+     免得 alpha 通道出意外时整页变黑（缩放时的黑屏就是 alpha:false 造成的） */
+  background: var(--pdfa-page-bg);
 }
 
 /* ==========================================================================

@@ -1054,12 +1054,24 @@ export class PDFFileView extends ItemView {
       if (current !== el || el.state !== "queued") return;
 
       el.state = "rendering";
+      const wantScale = this.scale;
       try {
         const result = await this.renderer.renderPage(pageNumber, el.canvas, el.textLayer, {
-          scale: this.scale,
+          scale: wantScale,
         });
         if (!result) {
           el.state = "idle";
+          return;
+        }
+        /*
+         * 渲染期间用户又缩放了一次：这一帧是旧尺寸的，绝不能标成 "done"。
+         * 标了之后没人再来管这页（ensureRender 只认 idle），页面就永远停在
+         * 拉伸的旧图上 —— 这也是"缩放后一直糊/一直黑"的来源之一。
+         * 丢掉这一帧，回 idle，下一帧再排一次（此时 this.scale 已是新值）。
+         */
+        if (Math.abs(this.scale - wantScale) > 1e-4 || Math.abs(result.geometry.scale - this.scale) > 1e-4) {
+          el.state = "idle";
+          window.requestAnimationFrame(() => this.ensureRender(pageNumber));
           return;
         }
         el.geometry = result.geometry;
@@ -1167,8 +1179,21 @@ export class PDFFileView extends ItemView {
       el.root.style.height = `${geo.baseHeight * clamped}px`;
       el.layer.setGeometry(geo);
       el.state = "idle";
-      el.canvas.width = 0;
-      el.canvas.height = 0;
+      /*
+       * 关键：**不要**把 canvas 尺寸清 0。
+       * 改 canvas.width/height 等于丢掉整张位图，新的一帧到来之前这块就是空的；
+       * 再叠上 alpha:false 就是纯黑（实测：alpha:false 的画布在被重置、尚未重绘时
+       * 由浏览器填成 #000），所以缩放时先黑一帧，没补上就"持续黑屏"。
+       * 现在的做法：旧位图原样留着，只把 CSS 尺寸拉到新比例 —— 浏览器帮你拉伸，
+       * 糊一下而已，新的一帧落地就自动变清晰（Chrome 自带阅读器也是这个观感）。
+       */
+      const cssW = Math.floor(geo.baseWidth * clamped);
+      const cssH = Math.floor(geo.baseHeight * clamped);
+      if (el.canvas.width > 0) {
+        el.canvas.style.width = `${cssW}px`;
+        el.canvas.style.height = `${cssH}px`;
+      }
+      // 文本层是按旧 scale 绝对定位的，留着会错位；位图能拉伸，文字层不行
       el.textLayer.textContent = "";
     }
 
@@ -1186,6 +1211,14 @@ export class PDFFileView extends ItemView {
 
     // ⑤ 页面尺寸全变了：卡片的锚点与左右选道必须重排，否则会飘到别处
     this.refreshCards();
+
+    /*
+     * ⑥ 立刻补画一帧。
+     * 原来只靠 scroll 事件触发重绘 —— 但缩放后锚点往往落回同一个 scrollTop，
+     * 浏览器就不发 scroll 事件，于是"整页停在拉伸的旧图/空白上"，要等用户
+     * 再滚一下才恢复。缩放是用户主动发起的，必须自己把渲染排上。
+     */
+    this.refreshVisible();
   }
 
   private captureAnchor(): { page: number; ratio: number } | null {
