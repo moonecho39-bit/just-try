@@ -281,6 +281,19 @@ export class PdfAnnotatorSettingTab extends PluginSettingTab {
           );
         }),
       );
+
+    new Setting(containerEl)
+      .setName("打开 PDF 时自动全屏阅读")
+      .setDesc(
+        "开启后，进入批注视图会收起左右侧栏，把整个窗口宽度让给 PDF（左侧图标条也会隐藏）。" +
+          "只改布局，不改任何文件；关掉标签页时会还原。工具栏上的 ⤢ 按钮可随时手动切换。",
+      )
+      .addToggle((t) =>
+        t.setValue(this.host.settings.focusOnOpen).onChange(async (v) => {
+          this.host.settings.focusOnOpen = v;
+          await this.host.saveSettings();
+        }),
+      );
   }
 
   /* ------------------------------------------------------------------ */

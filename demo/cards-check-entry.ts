@@ -26,11 +26,14 @@ function main(): void {
     },
   });
 
+  // 标题按「形态 · 页码」写：和参考图里「高亮 · p.2」「矩形 · p.2」一致
+  // anchorLeft / anchorRight 是大致的手工值：对应 html 里那条 fake-hl 的左右端（/798）
   const vms: CardVM[] = [
-    { id: "a", page: 1, color: "#f5c542", title: "批注 · p.1", body: BODY_A, anchorTop: 120 },
-    { id: "b", page: 1, color: "#f6a6a6", title: "批注 · p.1", body: BODY_B, anchorTop: 150 },
-    { id: "c", page: 1, color: "#b48ef0", title: "批注 · p.1", body: BODY_C, anchorTop: 700 },
-    { id: "d", page: 2, color: "#8fd0c0", title: "批注 · p.2", body: "第二页的批注，用来确认卡片会跟着各自的页面走。", anchorTop: 300 },
+    { id: "a", page: 1, color: "#f5c542", title: "高亮 · p.1", body: BODY_A, anchorTop: 127, anchorLeft: 0.075, anchorRight: 0.476 },
+    { id: "b", page: 1, color: "#f6a6a6", title: "下划线 · p.1", body: BODY_B, anchorTop: 157, anchorLeft: 0.075, anchorRight: 0.426 },
+    { id: "c", page: 1, color: "#b48ef0", title: "框选 · p.1", body: BODY_C, anchorTop: 707, anchorLeft: 0.075, anchorRight: 0.501 },
+    // 空卡片：确认"点这里写批注…"的占位样式不会撑坏排版
+    { id: "d", page: 2, color: "#8fd0c0", title: "高亮 · p.2", body: "", anchorTop: 307, anchorLeft: 0.075, anchorRight: 0.451 },
   ];
   overlay.setCards(vms);
 

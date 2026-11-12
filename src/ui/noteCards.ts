@@ -31,6 +31,16 @@ export interface CardVM {
   body: string;
   /** 锚点相对页面顶部的纵向位置（CSS px） */
   anchorTop: number;
+  /**
+   * 高亮左 / 右端在页面里的归一化横向位置（0~1）。
+   *
+   * 连线要从**高亮本身**出发，而不是从页面边缘出发 ——
+   * 卡片本来就贴着页面边缘，只画到边缘的话，线只有十来个像素，
+   * 看上去像一颗孤零零的色点，完全起不到"这条批注对应那段字"的作用。
+   * 用归一化值而不是像素，缩放后不用重算。
+   */
+  anchorLeft?: number;
+  anchorRight?: number;
 }
 
 export interface CardHooks {
@@ -54,7 +64,15 @@ interface CardRec {
   sig: string;
   /** 上一次布局给出的宽度（画连线时要用） */
   w: number;
-  anchor: { side: CardSide; pageLeft: number; pageRight: number; y: number } | null;
+  anchor: {
+    side: CardSide;
+    pageLeft: number;
+    pageRight: number;
+    y: number;
+    /** 高亮在页面里的左右端（CSS px，已换算过缩放） */
+    nearLeft: number;
+    nearRight: number;
+  } | null;
 }
 
 export class CardOverlay {
@@ -106,6 +124,7 @@ export class CardOverlay {
         rec.sig = sig;
         rec.titleEl.textContent = vm.title;
         rec.dotEl.style.background = vm.color;
+        rec.el.style.setProperty("--pdfa-accent", vm.color);
         const out = this.hooks.renderBody(rec.bodyEl, vm.body);
         if (out && typeof out.then === "function") {
           void out.then(() => this.scheduleLayout());
@@ -146,6 +165,12 @@ export class CardOverlay {
     const el = doc.createElement("div");
     el.className = "pdfa-card";
     el.dataset.id = vm.id;
+    /*
+     * 批注色做成 CSS 变量挂在卡片上：顶部那道色条、色点、连线都用它。
+     * 参考 MarginNote / BookxNote 的做法 —— 卡片和它标注的那段字是同一个颜色，
+     * 一眼就能对上是哪条。
+     */
+    el.style.setProperty("--pdfa-accent", vm.color);
 
     const head = doc.createElement("div");
     head.className = "pdfa-card-head";
@@ -199,6 +224,20 @@ export class CardOverlay {
     // 卡片是浮层里的"控件"：不许把按下事件传给下面的绘制层，否则会拖出一条线
     el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
     el.addEventListener("click", () => this.hooks.onSelect(vm.id));
+
+    /*
+     * 正文区域直接可写：空卡片点一下、已有内容双击，都进编辑器。
+     * 参考图里的卡片正文本身就是个输入框 —— 读完立刻想补两句是最常见的手势。
+     */
+    bodyEl.addEventListener("click", (ev) => {
+      if (!bodyEl.classList.contains("is-empty")) return;
+      ev.stopPropagation();
+      this.hooks.onEdit(vm.id);
+    });
+    bodyEl.addEventListener("dblclick", (ev) => {
+      ev.stopPropagation();
+      this.hooks.onEdit(vm.id);
+    });
 
     const rec: CardRec = { el, titleEl, dotEl, bodyEl, sig: "", w: CARD_MAX_W, anchor: null };
     if (this.collapsed.has(vm.id)) el.classList.add("is-collapsed");
@@ -255,7 +294,14 @@ export class CardOverlay {
       // 宽度定下来之后量高度才准（正文换行数取决于宽度）
       const height = rec.el.offsetHeight;
       const y = pr.top - rootRect.top + vm.anchorTop;
-      rec.anchor = { side: lane.side, pageLeft, pageRight, y };
+      rec.anchor = {
+        side: lane.side,
+        pageLeft,
+        pageRight,
+        y,
+        nearLeft: pageLeft + (vm.anchorLeft ?? 0) * pr.width,
+        nearRight: pageLeft + (vm.anchorRight ?? 1) * pr.width,
+      };
 
       // 卡片的"头"对齐锚点；-6 让色点大致落在高亮那一行的中线上
       metrics.push({ id, top: y - 6, height });
@@ -282,7 +328,15 @@ export class CardOverlay {
       const top = parseFloat(rec.el.style.top || "0");
       if (!Number.isFinite(left) || !Number.isFinite(top)) continue;
 
-      const x1 = a.side === "right" ? a.pageRight : a.pageLeft;
+      /*
+       * 起点落在高亮上，但最多只往页面里走 96px：
+       * 取整行时线会横穿正文，取太短又只剩一个点。
+       * 96px 大致是"跨过一个词"的距离，和参考图里的斜线观感一致。
+       */
+      const x1 =
+        a.side === "right"
+          ? Math.max(a.pageRight - 96, Math.min(a.nearRight, a.pageRight - 6))
+          : Math.min(a.pageLeft + 96, Math.max(a.nearLeft, a.pageLeft + 6));
       const x2 = a.side === "right" ? left : left + rec.w;
       const y2 = top + 16;
       const color = this.vms.get(id)?.color ?? "#888";
@@ -293,15 +347,29 @@ export class CardOverlay {
       path.setAttribute("d", `M ${x1} ${a.y} H ${midX} L ${x2} ${y2}`);
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", color);
-      path.setAttribute("stroke-width", "1.5");
-      path.setAttribute("stroke-dasharray", "4 3");
-      path.setAttribute("opacity", "0.85");
+      path.setAttribute("stroke-width", "1.6");
+      path.setAttribute("stroke-dasharray", "3 3");
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("opacity", "0.8");
       this.linkSvg.appendChild(path);
 
+      /*
+       * 页面这一端画一个小方块（像书页边上的批注签），卡片那一端点一个小圆。
+       * 只有线没有端点时，线头会"消失"在纸面里，很难看出它指的是哪一行。
+       */
+      const tab = doc.createElementNS("http://www.w3.org/2000/svg", "rect") as SVGRectElement;
+      tab.setAttribute("x", String(x1 - 3));
+      tab.setAttribute("y", String(a.y - 3));
+      tab.setAttribute("width", "6");
+      tab.setAttribute("height", "6");
+      tab.setAttribute("rx", "1.5");
+      tab.setAttribute("fill", color);
+      this.linkSvg.appendChild(tab);
+
       const dot = doc.createElementNS("http://www.w3.org/2000/svg", "circle") as SVGCircleElement;
-      dot.setAttribute("cx", String(x1));
-      dot.setAttribute("cy", String(a.y));
-      dot.setAttribute("r", "3");
+      dot.setAttribute("cx", String(x2));
+      dot.setAttribute("cy", String(y2));
+      dot.setAttribute("r", "2.5");
       dot.setAttribute("fill", color);
       this.linkSvg.appendChild(dot);
     }

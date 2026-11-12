@@ -110,6 +110,18 @@ import { h } from "./dom";
 
 export const PDF_VIEW_TYPE = "pdf-annotator-view";
 
+/**
+ * 侧栏（WorkspaceSidedock）里我们要用的那三样。
+ *
+ * 不直接引 Obsidian 的类：不同版本对 `collapsed` / `collapse()` 的暴露程度不一，
+ * 这里只按"有就用、没有就算了"的最小结构来写，免得宿主升级就编译不过。
+ */
+interface SideDockLike {
+  collapsed?: boolean;
+  collapse?: () => void;
+  expand?: () => void;
+}
+
 /** 回链高亮的填充透明度：比自建高亮淡一点，因为可能好几条叠在同一处 */
 const BACKLINK_OPACITY = 0.28;
 /** 元数据变化后的重扫延迟：连续粘贴多条链接时不必每条都扫一遍 */
@@ -253,6 +265,11 @@ export class PDFFileView extends ItemView {
   private readonly commentPopover = new CommentPopover();
   /** 卡片默认开：用户要的就是"看得见"，默认关等于没做 */
   private cardsVisible = true;
+  /** 全屏阅读（收起两侧边栏）是否开着 */
+  private focusMode = false;
+  private focusBtnEl: HTMLElement | null = null;
+  /** 进全屏前两侧边栏本来是不是展开的 —— 退出时只还原"本来开着的" */
+  private focusSaved: { left: boolean; right: boolean } | null = null;
   /** 自增代际号：切换文件 / 重建页面后，旧的异步任务据此自我作废 */
   private generation = 0;
   /** 串行渲染队列：避免同一时刻多个 page.render 抢主线程 */
@@ -420,6 +437,15 @@ export class PDFFileView extends ItemView {
     this.updateZoomLabel();
     this.syncHistoryButtons();
     this.syncBacklinkButton();
+
+    /*
+     * 设置里开了「打开 PDF 时自动全屏阅读」的话，进视图就收起两侧边栏。
+     * 放到下一帧：此刻工作区还在给这个 leaf 分配尺寸，立刻折叠容易算错宽度，
+     * 卡片会先按窄边距排一次再重排。
+     */
+    if (this.plugin.settings.focusOnOpen) {
+      window.requestAnimationFrame(() => this.setFocusMode(true));
+    }
   }
 
   async onClose(): Promise<void> {
@@ -453,6 +479,8 @@ export class PDFFileView extends ItemView {
     this.backlinkPanel = null;
     this.cardOverlay?.destroy();
     this.cardOverlay = null;
+    // 关掉标签页时把侧栏还回去，别让用户的工作区被我们改过就撂着
+    if (this.focusMode) this.setFocusMode(false);
 
     for (const el of this.pages.values()) el.layer.destroy();
     this.pages.clear();
@@ -560,6 +588,16 @@ export class PDFFileView extends ItemView {
 
     /* 批注卡片开关：卡片默认开，但读论文时也会想"只要高亮、别弹卡片"，所以给个开关 */
     this.cardsBtnEl = this.iconButton(side, "sticky-note", "显示 / 隐藏批注卡片", () => this.toggleCards());
+
+    /*
+     * 全屏阅读：收起左右侧栏。
+     * Obsidian 的侧栏折叠按钮在自定义标题栏下常被窗口按钮压住（"右边关不掉"），
+     * 而侧栏占掉的宽度会一直压着 PDF —— 看起来就像"只能分屏"。
+     * 这里给一个插件内的出口，点一下把宽度全还给页面。
+     */
+    this.focusBtnEl = this.iconButton(side, "expand", "全屏阅读：收起两侧边栏", () =>
+      this.toggleFocusMode(),
+    );
 
     /* 反向链接面板开关：带一个数量角标，否则用户不知道这篇 PDF 有没有回链 */
     this.backlinkBtnEl = side.createEl("button", {
@@ -2275,6 +2313,75 @@ export class PDFFileView extends ItemView {
    * 批注卡片：页面外侧"看得见的批注"
    * ---------------------------------------------------------------- */
 
+  /* ---------------------------------------------------------------- *
+   * 全屏阅读（收起两侧边栏）
+   * ---------------------------------------------------------------- */
+
+  /** 工具栏「全屏阅读」按钮 / 命令面板的入口 */
+  toggleFocusMode(): void {
+    this.setFocusMode(!this.focusMode);
+  }
+
+  /**
+   * 收起或还原两侧边栏。
+   *
+   * 只改工作区布局，不动文件、不动设置：
+   *   进的时候记下"哪一侧本来是开着的"，退的时候只还原那一侧 ——
+   *   用户进全屏前主动收起的侧栏，不该被我们擅自打开。
+   */
+  private setFocusMode(on: boolean): void {
+    if (on === this.focusMode) return;
+
+    const ws = this.app.workspace as unknown as {
+      leftSplit?: SideDockLike;
+      rightSplit?: SideDockLike;
+    };
+    const left = ws.leftSplit;
+    const right = ws.rightSplit;
+
+    if (on) {
+      /*
+       * "本来是不是开着"用 `!== true` 判断：拿不到 collapsed 字段的版本按"开着"处理。
+       * 宁可退出去时多展开一次，也别把用户的侧栏永久收着。
+       */
+      this.focusSaved = {
+        left: left?.collapsed !== true,
+        right: right?.collapsed !== true,
+      };
+      this.setDockCollapsed(left, true);
+      this.setDockCollapsed(right, true);
+      // 左侧图标条（ribbon）不属于 split，得单独隐藏
+      document.body.classList.add("pdfa-focus");
+    } else {
+      if (this.focusSaved?.left) this.setDockCollapsed(left, false);
+      if (this.focusSaved?.right) this.setDockCollapsed(right, false);
+      this.focusSaved = null;
+      document.body.classList.remove("pdfa-focus");
+    }
+
+    this.focusMode = on;
+    this.focusBtnEl?.classList.toggle("is-active", on);
+    if (this.focusBtnEl) setIcon(this.focusBtnEl, on ? "shrink" : "expand");
+
+    /*
+     * 侧栏收起后滚动区宽度会变，卡片得重新选道。
+     * ResizeObserver 也会触发一次，但那要等下一帧；这里主动排一次，
+     * 免得用户看到卡片先"跳"到内侧再弹回空白里。
+     */
+    window.requestAnimationFrame(() => this.refreshCards());
+  }
+
+  /** 折叠 / 展开一侧边栏；宿主版本差异或异常都不该把整个动作带崩 */
+  private setDockCollapsed(dock: SideDockLike | undefined, collapsed: boolean): void {
+    if (!dock) return;
+    try {
+      if (collapsed) dock.collapse?.();
+      else dock.expand?.();
+    } catch (err) {
+      console.warn("[PDF View] 折叠侧栏失败（不影响阅读）", err);
+    }
+  }
+
   private toggleCards(): void {
     this.cardsVisible = !this.cardsVisible;
     this.cardOverlay?.setVisible(this.cardsVisible);
@@ -2295,14 +2402,24 @@ export class PDFFileView extends ItemView {
       const pageEl = this.pages.get(anno.page)?.root;
       const h = pageEl?.clientHeight ?? 0;
       const first = rects[0];
+      /*
+       * 标题写"这条是什么"而不是笼统的"批注"：
+       * 参考图里是「高亮 · p.2」「矩形 · p.2」「便签 · p.2」——
+       * 读者扫一眼就知道这张卡是给一段高亮写的，还是给一个框写的。
+       */
+      const mark = anno.mark ?? "highlight";
+      const kindText = mark === "underline" ? "下划线" : mark === "box" ? "框选" : "高亮";
       vms.push({
         id: anno.id,
         page: anno.page,
         color: anno.color,
-        title: `批注 · p.${anno.page}`,
+        title: `${kindText} · p.${anno.page}`,
         body: anno.body,
         // 锚点取第一行中线：卡片头部大致对齐这段文字
         anchorTop: (first.y + first.h / 2) * (h || 1),
+        // 连线的起点：这段高亮的左右两端（归一化，缩放后自动跟随）
+        anchorLeft: first.x,
+        anchorRight: first.x + first.w,
       });
     }
     overlay.setCards(vms);
@@ -2312,7 +2429,7 @@ export class PDFFileView extends ItemView {
     el.textContent = "";
     if (!body.trim()) {
       el.classList.add("is-empty");
-      el.textContent = "还没有写批注 · 点铅笔补充";
+      el.textContent = "点这里写批注…";
       return;
     }
     el.classList.remove("is-empty");
@@ -2327,8 +2444,17 @@ export class PDFFileView extends ItemView {
     if (anno?.kind !== "note") return;
     const el = this.pages.get(anno.page);
     if (!el) return;
-    const target = el.root.offsetTop + anno.at.y * el.root.clientHeight - this.scrollerEl.clientHeight / 3;
-    this.scrollerEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+
+    /*
+     * 只在"看不见"的时候才滚：卡片本来就在那段字旁边时，
+     * 点一下卡片却把页面弹走，会让人以为自己点错了东西。
+     */
+    const view = this.scrollerEl.getBoundingClientRect();
+    const anchorY = el.root.getBoundingClientRect().top + anno.at.y * el.root.clientHeight;
+    if (anchorY < view.top + 48 || anchorY > view.bottom - 48) {
+      const target = el.root.offsetTop + anno.at.y * el.root.clientHeight - this.scrollerEl.clientHeight / 3;
+      this.scrollerEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+    }
     el.layer.flashAnnotation(anno.id);
   }
 

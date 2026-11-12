@@ -30,6 +30,7 @@ const GLYPHS: Record<string, string> = {
   "alert-triangle": "⚠",
   plus: "+",
   minus: "−",
+  "chevron-up": "⌃",
   "chevron-left": "‹",
   "chevron-right": "›",
   "move-horizontal": "↔",

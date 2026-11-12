@@ -168,8 +168,18 @@ margin cards exist to avoid. Now the wider margin is measured and the card is si
 The last row is a physical limit — at that size the page already fills the pane. Note the scrollbar
 eats ~15px; `clientWidth` already excludes it, so the measurement is what you actually see.
 
-The leader always leaves from the **page edge, at the height of the annotated line** — not from the
-end of the highlight, which would cut across the remaining words on that line.
+**Card look (0.9.0).** Matching the MarginNote-style reference: a **coloured bar across the top** of
+each card in the annotation's own colour, a matching dot before the title, the body in an inset
+rounded box (light fill + hairline border) — so the title and the note read as two different
+things, and an empty card looks like somewhere you can type. The title names the mark itself
+(`高亮 / 下划线 / 框选 · p.2`) instead of the generic `批注`: you can tell at a glance whether a card
+belongs to a highlight or to a drawn box. Click an empty card, or double-click a filled one, to edit.
+
+**The leader now starts at the highlight itself (0.9.0).** It used to leave from the page edge,
+which was fine in principle but only ~10px long in practice — the card sits right next to the page,
+so the line collapsed into a stray dot and stopped doing its job. It now starts on the highlight,
+capped at 96px inside the page (about one word) so it never cuts across a whole line, and ends with
+a small square at the text end and a small circle at the card end.
 
 Under the hood it is still a single `NoteAnnotation` with an optional `rects` field: with `rects` it
 renders a highlight + card, without it you get the classic pin. Storage is unchanged, so no existing
@@ -191,6 +201,24 @@ Page jumps are applied via `scrollTop`, not `scrollIntoView`, so the toolbar can
 out of the viewport.
 
 ---
+
+### Full-screen reading (0.9.0)
+
+When the PDF looks like it is "stuck in a split pane", it usually is not: the sidebars are open.
+The ribbon plus a note / AI panel take a chunk each, so the main area's PDF is squeezed into the
+middle — and the sidebar's collapse button tends to hide under the window buttons, which is why it
+feels impossible to close. Three one-click ways out:
+
+| Entry | Where |
+|---|---|
+| **⤢** in the toolbar | rightmost group, next to the card toggle |
+| Command palette | **`全屏阅读：收起 / 展开两侧边栏`** |
+| Settings → 打开方式 | **打开 PDF 时自动全屏阅读** (off by default) |
+
+It does one thing: `collapse()` on `workspace.leftSplit` / `rightSplit`, plus a `pdfa-focus` class on
+`body` that hides the ribbon. No files touched, no settings changed, and on exit only the side that
+was open before is restored — a sidebar you had collapsed yourself stays collapsed. Closing the PDF
+tab restores the layout too.
 
 ### Never hijacks a sidebar (fixed in 0.8.1)
 

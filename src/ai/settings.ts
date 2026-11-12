@@ -28,6 +28,13 @@ export type PluginSettings = {
    * 注意：改变这个值需要重启 Obsidian 才生效（扩展名注册在启动时做）。
    */
   openPdfInPlugin: boolean;
+  /**
+   * 打开 PDF 时自动进「全屏阅读」（收起两侧边栏）。
+   *
+   * 默认 false：改布局是件有副作用的事，得用户自己点头。
+   * 但侧栏关不掉、PDF 只能占半屏时，这是最省事的一次性开关。
+   */
+  focusOnOpen: boolean;
 };
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -36,6 +43,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   noteFolder: "PDF 批注",
   noteSuffix: "pdf-notes",
   openPdfInPlugin: false,
+  focusOnOpen: false,
 };
 
 export async function loadSettings(plugin: Plugin): Promise<PluginSettings> {
@@ -78,6 +86,7 @@ export function sanitizeSettings(raw: unknown): PluginSettings {
     noteFolder: str(root.noteFolder, DEFAULT_SETTINGS.noteFolder).replace(/^\/+|\/+$/g, "") || DEFAULT_SETTINGS.noteFolder,
     noteSuffix: str(root.noteSuffix, DEFAULT_SETTINGS.noteSuffix).trim() || DEFAULT_SETTINGS.noteSuffix,
     openPdfInPlugin: bool(root.openPdfInPlugin, DEFAULT_SETTINGS.openPdfInPlugin),
+    focusOnOpen: bool(root.focusOnOpen, DEFAULT_SETTINGS.focusOnOpen),
   };
 }
 

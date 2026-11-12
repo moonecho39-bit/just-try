@@ -1824,16 +1824,17 @@ body.pdfa-linking-drag {
   display: flex;
   flex-direction: column;
   pointer-events: auto;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid var(--background-modifier-border);
-  /* 底色偏白 + 阴影，浮在灰色画布上才有"卡片"感 */
+  /* 顶部一道批注色：卡片和它标注的那段字同色，扫一眼就能对上（参考 MarginNote） */
+  border-top: 3px solid var(--pdfa-accent, var(--interactive-accent));
   background: var(--background-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 10px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 18px rgba(0, 0, 0, 0.1);
   font-size: var(--font-ui-smaller);
   color: var(--text-normal);
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.12s ease, transform 0.12s ease;
+  transition: box-shadow 0.12s ease;
 }
 
 .pdfa-shell .pdfa-card:hover {
@@ -1849,9 +1850,9 @@ body.pdfa-linking-drag {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 4px 4px 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  /* 顶部已经有色条，标题行就不要再加分隔线和底色，否则像两层工具栏 */
+  padding: 6px 5px 3px 9px;
+  background: transparent;
   user-select: none;
 }
 
@@ -1860,7 +1861,9 @@ body.pdfa-linking-drag {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.18);
+  /* 颜色由 JS 直接写在行内；这里只兜底 */
+  background: var(--pdfa-accent, var(--interactive-accent));
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.04);
 }
 
 .pdfa-shell .pdfa-card-title {
@@ -1869,8 +1872,11 @@ body.pdfa-linking-drag {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
+  /* 「高亮 · p.2」是标题不是注释，要用正文色；浅灰会在白卡上糊成一团 */
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-normal);
+  letter-spacing: 0.2px;
 }
 
 .pdfa-shell .pdfa-card-tools {
@@ -1906,9 +1912,18 @@ body.pdfa-linking-drag {
 }
 
 .pdfa-shell .pdfa-card-body {
-  padding: 7px 9px 8px;
-  max-height: 260px;
+  /*
+   * 正文做成"内嵌小框"（浅底 + 细边 + 圆角），跟参考图里的输入框一致：
+   * 一眼能分清"标题 / 正文"，也让空卡片看着像"可以写点什么"的地方。
+   */
+  margin: 0 7px 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  max-height: 210px;
   overflow-y: auto;
+  font-size: 12px;
   line-height: 1.55;
   /* 卡片里的 Markdown：首尾段落不要各撑一行空 */
   word-break: break-word;
@@ -1961,7 +1976,29 @@ body.pdfa-linking-drag {
   height: 18px;
 }
 
+.pdfa-shell .pdfa-card.is-narrow .pdfa-card-title {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
 .pdfa-shell .pdfa-card.is-narrow .pdfa-card-body {
-  padding: 6px 7px 7px;
+  margin: 0 5px 6px;
+  padding: 5px 6px;
   line-height: 1.45;
+}
+
+/* ------------------------------ 全屏阅读 ------------------------------ */
+
+/*
+ * 收起侧栏由 JS 调 workspace.leftSplit/rightSplit 完成；
+ * 这两条是兜底：老版本没有 collapse()，或 ribbon 不属于 split 的情况。
+ * 只在 body 上有 pdfa-focus 时生效，退出全屏立刻消失。
+ */
+body.pdfa-focus .workspace-ribbon.mod-left {
+  display: none;
+}
+
+body.pdfa-focus .workspace-split.mod-left-split,
+body.pdfa-focus .workspace-split.mod-right-split {
+  display: none;
 }

@@ -189,6 +189,18 @@ export default class PdfAnnotatorPlugin extends Plugin {
     });
 
     /*
+     * 命令：全屏阅读（收起两侧边栏）
+     *
+     * 侧栏的折叠按钮在自定义标题栏下常被窗口按钮压住，用户"关不掉右边那一栏"，
+     * 于是 PDF 永远只占中间一条 —— 看起来就是"只能分屏"。给一个命令做同一件事。
+     */
+    this.addCommand({
+      id: "toggle-focus-mode",
+      name: "全屏阅读：收起 / 展开两侧边栏",
+      callback: () => this.requirePdfView()?.toggleFocusMode(),
+    });
+
+    /*
      * ★ 拦截 Markdown 里的 PDF 链接点击
      *
      * 必须在**捕获阶段**：Obsidian 自己的 click 处理挂在编辑器/预览的冒泡链上，
