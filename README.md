@@ -181,8 +181,16 @@ so the line collapsed into a stray dot and stopped doing its job. It now starts 
 capped at 96px inside the page (about one word) so it never cuts across a whole line, and ends with
 a small square at the text end and a small circle at the card end.
 
+**The pin is gone for text marks (0.9.1).** A note that came from a highlight / underline / box used
+to carry a 20px circular pin (💬) at the right end of its first line — right on top of the last few
+words, and in the way when you tried to select them. Now such notes draw **the mark only**: the mark
+is what says "this text is annotated", and the whole mark is the click target (click → comment
+popover, right-click → menu, click its card → editor). The hit test skips the now-invisible pin
+centre too, otherwise clicking a word in the middle would pop the editor. Only free-standing notes
+(pinned to a point on the page, with no text to hang on) keep the 📌 — they have no other marker.
+
 Under the hood it is still a single `NoteAnnotation` with an optional `rects` field: with `rects` it
-renders a highlight + card, without it you get the classic pin. Storage is unchanged, so no existing
+renders a mark + card, without it you get the classic pin. Storage is unchanged, so no existing
 note needs migrating, and converting a highlight reuses the same id — one undo step, no orphan pin.
 Its `mark` field ("highlight" / "underline" / "box") remembers what the annotation looked like
 before it gained a comment, so an underline does not silently become a filled block.

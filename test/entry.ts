@@ -460,6 +460,27 @@ function testPageLayer(): void {
   );
   check("图钉带 📌 文本", (pin?.textContent ?? "").includes("📌"));
 
+  // 带底纹的批注（高亮升级而来）不画图钉：底纹本身就是入口，图钉会压住正文
+  const markNote: NoteAnnotation = {
+    id: "n2",
+    kind: "note",
+    page: 3,
+    at: { x: 0.3, y: 0.3 },
+    body: "带底纹的批注",
+    color: "#F2A93B",
+    rects: [{ x: 0.2, y: 0.3, w: 0.2, h: 0.03 }],
+    mark: "highlight",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  layer.setAnnotations([markNote]);
+  const markNode = host.querySelector('[data-anno-id="n2"]');
+  check("带底纹的批注不渲染图钉", markNode?.querySelector(".pdfa-note-pin") == null);
+  check("带底纹的批注保留了底纹", markNode?.querySelector(".pdfa-hl") != null);
+  check("看不见的图钉也不再命中", layer.hitPin(0.3 * 600, 0.3 * 800) === null);
+  check("点底纹仍然命中该批注", layer.hitTest(0.3 * 600, 0.3 * 800)?.id === "n2");
+  layer.setAnnotations([hl, ink, note]);
+
   check("命中高亮矩形（0.1×600=60, 0.1×800=80）", layer.hitTest(65, 88)?.id === "h1");
   check("命中便签图钉", layer.hitTest(30, 40)?.id === "n1");
   check("命中手绘（0.55 × 600 = 330, 400）", layer.hitTest(330, 400)?.id === "i1");
@@ -560,12 +581,33 @@ function testMarkTap(): void {
   tap(330, 408);
   check("点批注底纹 → 弹气泡", taps.join(",") === "n1", taps);
 
-  // ④ 点图钉：开富文本编辑器，并且不再叠一个气泡
+  /*
+   * ④ 带底纹的批注不再画图钉：原来钉在首行右端的那个点也属于底纹，
+   *    点它只能弹气泡 —— 绝不能变成"点字突然跳出编辑器"。
+   */
   taps.length = 0;
   opened.length = 0;
   tap(420, 408);
-  check("点图钉 → 开编辑器", opened.join(",") === "n1", opened);
-  check("点图钉 → 不再弹气泡", taps.length === 0, taps);
+  check("带底纹的批注：原图钉位只弹气泡", taps.join(",") === "n1", taps);
+  check("带底纹的批注：不会误开编辑器", opened.length === 0, opened);
+
+  // ⑤ 纯图钉（钉在页面上某点、没有底纹）仍靠图钉开编辑器 —— 它是唯一入口
+  const purePin: NoteAnnotation = {
+    id: "n2",
+    kind: "note",
+    page: 1,
+    at: { x: 0.2, y: 0.8 },
+    body: "",
+    color: "#F2A93B",
+    createdAt: 2,
+    updatedAt: 2,
+  };
+  layer.setAnnotations([hl, note, purePin]);
+  taps.length = 0;
+  opened.length = 0;
+  tap(120, 640);
+  check("点纯图钉 → 开编辑器", opened.join(",") === "n2", opened);
+  check("点纯图钉 → 不弹气泡", taps.length === 0, taps);
 
   // ⑤ 空白处
   taps.length = 0;

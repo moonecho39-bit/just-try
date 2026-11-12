@@ -409,12 +409,17 @@ export class PageLayer {
    * 只命中图钉 —— 不含它底下的底纹。
    * 「点图钉 = 开富文本编辑器」与「点底纹 = 弹评论气泡」是两件事，
    * 混用一个 hitTest 会让点高亮中间也跳出编辑器。
+   *
+   * 带 rects 的批注没有图钉（buildNode 里不画），这里也必须跳过：
+   * 否则它的锚点（首行右端）虽然看不见，却仍然会吃掉那一下点击，
+   * 变成"点字弹出编辑器"。
    */
   hitPin(bx: number, by: number): NoteAnnotation | null {
     const { baseWidth, baseHeight } = this.geo;
     for (let i = this.annos.length - 1; i >= 0; i--) {
       const a = this.annos[i];
       if (a.kind !== "note") continue;
+      if (a.rects && a.rects.length > 0) continue;
       const cx = a.at.x * baseWidth;
       const cy = a.at.y * baseHeight;
       if (Math.hypot(bx - cx, by - cy) <= this.pinRadius()) return a;
@@ -1012,10 +1017,10 @@ export class PageLayer {
       }
       case "note": {
         /*
-         * 有 rects = 「给这段文字加的批注」，页面上要同时出现两样东西：
-         *   ① 底纹（告诉人这段被批注了）② 图钉（点它开编辑器）。
-         * 两者必须分装在两个 <g> 里：buildPin 会给自己那个 g 设 transform，
-         * 底纹若和它在同一个 g 里，会跟着整体 translate 到锚点上，位置全错。
+         * 有 rects = 「给这段文字加的批注」，页面上只画底纹，不再画图钉。
+         * 底纹本身就说明"这段被批注了"，图钉是钉在首行右端的一个 20px 圆点，
+         * 正好压住用户要看的字（还会挡住选中文字），所以整块底纹才是点击入口。
+         * 纯图钉（无 rects，钉在页面上某个点）依然保留 —— 它没有别的可视标识。
          *
          * 底纹按 `mark` 画回原样：从下划线、框选升级来的批注，不该突然变成
          * 一块实心色块 —— 那会让人以为"我原来画的东西被改掉了"。
@@ -1067,7 +1072,8 @@ export class PageLayer {
             );
           }
         }
-        this.buildPin(svgEl("g", {}, g), a);
+        // 只有"无底纹的纯图钉"才画图钉；带 rects 的批注靠底纹说话
+        if (!a.rects || a.rects.length === 0) this.buildPin(svgEl("g", {}, g), a);
         break;
       }
     }
@@ -1075,7 +1081,7 @@ export class PageLayer {
   }
 
   /**
-   * 便签图钉：圆心 + 白描边 + 📌。
+   * 便签图钉：圆心 + 白描边 + 📌。只用于「钉在页面上某个点」的纯便签。
    * 半径用 CSS px / scale，保证 100% 和 300% 下看起来一样大 ——
    * 图钉是"控件"不是"内容"，跟着页面放大反而会盖住正文。
    */
@@ -1102,7 +1108,7 @@ export class PageLayer {
       },
       g,
     );
-    label.textContent = a.rects && a.rects.length > 0 ? "💬" : "📌";
+    label.textContent = "📌";
   }
 
   private shapeBox(a: ShapeAnnotation) {

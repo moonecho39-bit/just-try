@@ -1,7 +1,7 @@
 {
   "id": "pdf-annotator",
   "name": "PDF View for Obsidian",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "minAppVersion": "1.5.0",
   "description": "不替换原生 PDF 查看器的批注插件：批注存为纯 Markdown 链接，内置 AI 伴读（OpenAI/Ollama）与富文本便签。",
   "author": "moonecho39-bit",
